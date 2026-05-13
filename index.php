@@ -3061,11 +3061,13 @@ if ($action === 'bio') {
             });
 
             // ── Konstanta layout ─────────────────────────────────────────────
-            const NODE_W       = 90;    // lebar efektif per node
-            const SPOUSE_GAP   = 130;   // jarak antar suami-istri
-            const NODE_GAP     = 56;    // jarak antar subtree saudara
-            const GEN_Y_GAP    = 180;   // jarak vertikal antar generasi
-            const WIFE_ROW_GAP = 78;    // jarak vertikal antar baris istri
+            const NODE_W               = 90;    // lebar efektif per node
+            const SPOUSE_GAP           = 130;   // jarak antar suami-istri
+            const NODE_GAP             = 56;    // jarak antar subtree saudara
+            const GEN_Y_GAP            = 180;   // jarak vertikal antar generasi
+            const WIFE_ROW_GAP         = 78;    // jarak vertikal antar baris istri
+            const SAME_GEN_MIN_GAP     = 10;    // jarak minimum antar node dalam generasi sama
+            const SAME_GEN_BASE_WIDTH  = 90;    // ukuran konsisten untuk node pada generasi yang sama
 
             // ── Hitung lebar subtree (bottom-up) ─────────────────────────────
             const subtW    = {};
@@ -3205,6 +3207,32 @@ if ($action === 'bio') {
             const allXs = [...visible].filter(id => pos[id]).map(id => pos[id].x);
             const shift  = -(Math.min(...allXs) + Math.max(...allXs)) / 2;
             visible.forEach(id => { if (pos[id]) pos[id].x += shift; });
+
+            // ── Pastikan semua anggota pada generasi yang sama tidak terlalu berdekatan ──
+            const generations = {};
+            [...visible].forEach(id => {
+                if (!pos[id]) return;
+                const gen = genLevel[id] ?? 0;
+                if (!generations[gen]) generations[gen] = [];
+                generations[gen].push(id);
+            });
+            Object.values(generations).forEach(ids => {
+                ids.sort((a, b) => pos[a].x - pos[b].x);
+                for (let i = 1; i < ids.length; i++) {
+                    const prevId = ids[i - 1];
+                    const currId = ids[i];
+                    const minX = pos[prevId].x + SAME_GEN_BASE_WIDTH + SAME_GEN_MIN_GAP;
+                    if (pos[currId].x < minX) {
+                        const shiftRight = minX - pos[currId].x;
+                        for (let j = i; j < ids.length; j++) {
+                            pos[ids[j]].x += shiftRight;
+                        }
+                    }
+                }
+            });
+            const allXs2 = [...visible].filter(id => pos[id]).map(id => pos[id].x);
+            const shift2  = -(Math.min(...allXs2) + Math.max(...allXs2)) / 2;
+            visible.forEach(id => { if (pos[id]) pos[id].x += shift2; });
 
             // ── Bangun elemen Cytoscape ──────────────────────────────────────
             const elements = [];
