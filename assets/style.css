@@ -225,8 +225,8 @@ input, select, textarea { width: 100%; padding: 10px; border: 1px solid #d1d5db;
 .tree-legend-badge.divorced { background:#6b7280; }
 
 .tree { width: max-content; min-width: 100%; margin: 0 auto; display: block; }
-.tree ul { padding-top: 26px; position: relative; display: flex; justify-content: center; align-items: flex-start; gap: 8px; margin: 0; }
-.tree li { text-align: center; list-style-type: none; position: relative; padding: 26px 8px 0; flex-shrink: 0; }
+.tree ul { padding-top: 26px; position: relative; display: flex; justify-content: center; align-items: flex-start; gap: 22px; margin: 0; }
+.tree li { text-align: center; list-style-type: none; position: relative; padding: 32px 8px 0; flex-shrink: 0; min-width: 220px; }
 .tree li::before, .tree li::after { content: ''; position: absolute; top: 0; right: 50%; border-top: 2px solid #94a3b8; width: 50%; height: 26px; }
 .tree li::after { right: auto; left: 50%; border-left: 2px solid #94a3b8; }
 .tree li:only-child::after, .tree li:only-child::before { display: none; }
@@ -237,13 +237,13 @@ input, select, textarea { width: 100%; padding: 10px; border: 1px solid #d1d5db;
 .tree ul ul::before { content: ''; position: absolute; top: 0; left: 50%; border-left: 2px solid #94a3b8; width: 0; height: 26px; }
 
 .horizontal-parents-wrapper {
-    display: flex; align-items: center; justify-content: center; gap: 0; flex-wrap: nowrap;
-    padding: 8px 10px; border-radius: 16px; background: rgba(255, 255, 255, 0.82);
+    display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: nowrap;
+    padding: 10px 12px; border-radius: 16px; background: rgba(255, 255, 255, 0.82);
     border: 1px solid rgba(148, 163, 184, 0.35); box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08); backdrop-filter: blur(2px);
 }
 .marriage-rows { display: flex; flex-direction: column; gap: 10px; align-items: center; }
-.marriage-grid { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: nowrap; width: 100%; }
-.wives-inline { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; flex: 1; min-width: 0; }
+.marriage-grid { display: flex; align-items: center; justify-content: center; gap: 14px; flex-wrap: nowrap; width: 100%; }
+.wives-inline { display: flex; align-items: center; gap: 12px; flex-wrap: nowrap; flex: 1; min-width: 0; }
 .wives-inline-left { justify-content: flex-end; }
 .wives-inline-right { justify-content: flex-start; }
 .marriage-inline-unit { display: flex; align-items: center; gap: 2px; }
@@ -277,9 +277,9 @@ input, select, textarea { width: 100%; padding: 10px; border: 1px solid #d1d5db;
     font-size: 0.72rem; color: #475569; background: #f8fafc; padding: 4px 10px; border-radius: 999px;
     margin-bottom: 8px; font-weight: 700; border: 1px solid #dbeafe; max-width: 230px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.children-list { display: flex; gap: 10px; padding-top: 12px; position: relative; margin: 0; }
+.children-list { display: flex; gap: 18px; padding-top: 12px; position: relative; margin: 0; }
 .children-list::before { content: ""; position: absolute; top: 0; left: 12%; right: 12%; height: 2px; background: #cbd5e1; }
-.children-list > li { position: relative; padding-top: 22px; }
+.children-list > li { position: relative; padding-top: 26px; min-width: 220px; }
 .children-list > li::before { content: ""; position: absolute; top: 0; left: 50%; width: 2px; height: 22px; background: #cbd5e1; }
 
 .tree-node-web { text-decoration: none; display: inline-block; margin: 0 2px; position: relative; }

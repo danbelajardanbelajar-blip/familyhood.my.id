@@ -3061,11 +3061,11 @@ if ($action === 'bio') {
             });
 
             // ── Konstanta layout ─────────────────────────────────────────────
-            const NODE_W     = 80;    // lebar efektif per node
-            const SPOUSE_GAP    = 110;   // jarak antar suami-istri
-            const NODE_GAP     = 40;    // jarak antar subtree saudara
-            const GEN_Y_GAP    = 160;   // jarak vertikal antar generasi
-            const WIFE_ROW_GAP = 65;    // jarak vertikal antar baris istri
+            const NODE_W       = 90;    // lebar efektif per node
+            const SPOUSE_GAP   = 130;   // jarak antar suami-istri
+            const NODE_GAP     = 56;    // jarak antar subtree saudara
+            const GEN_Y_GAP    = 180;   // jarak vertikal antar generasi
+            const WIFE_ROW_GAP = 78;    // jarak vertikal antar baris istri
 
             // ── Hitung lebar subtree (bottom-up) ─────────────────────────────
             const subtW    = {};
@@ -3108,7 +3108,7 @@ if ($action === 'bio') {
                     const col  = Math.floor(i / 2) + 1;   // 1,1,2,2,3,3,...
                     const side = (i % 2 === 0) ? -1 : 1;  // kiri,kanan,kiri,kanan,...
                     const row  = Math.floor(i / 2);
-                    const colX = col * SPOUSE_GAP + kidsExtra;
+                    const colX = col * (SPOUSE_GAP + 12) + kidsExtra;
                     pos[wid] = { x: cx + side * colX, y: baseY + row * WIFE_ROW_GAP };
                     placed.add(wid);
                 });
