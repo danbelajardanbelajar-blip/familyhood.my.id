@@ -1967,7 +1967,6 @@ if ($action === 'view_tree') {
 
 // Toggle Status Cerai
 if (isset($_GET['toggle_divorced']) && $action === 'bio') {
-    if ($isViewingOthers) die("Akses Ditolak.");
     $relId = intval($_GET['toggle_divorced']);
     $pid   = intval($_GET['id']);
     $r = $mysqli->query("SELECT * FROM relations WHERE id=$relId AND user_id=$targetUserId AND relation_type='pasangan'")->fetch_assoc();
@@ -1982,8 +1981,6 @@ if (isset($_GET['toggle_divorced']) && $action === 'bio') {
 
 // Hapus Relasi
 if (isset($_GET['delete_rel']) && $action === 'bio') {
-    if ($isViewingOthers) die("Akses Ditolak.");
-    
     $relId = intval($_GET['delete_rel']); 
     $pid = intval($_GET['id']);
     
@@ -2014,8 +2011,6 @@ if (isset($_GET['delete_rel']) && $action === 'bio') {
 
 // Hapus Orang
 if (isset($_GET['delete_person'])) {
-    if ($isViewingOthers) die("Akses Ditolak.");
-    
     $id = intval($_GET['delete_person']);
     
     // Cek kepemilikan
