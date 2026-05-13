@@ -1477,9 +1477,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $countCheck = $mysqli->query("SELECT COUNT(*) as total FROM persons WHERE user_id = $targetUserId")->fetch_assoc()['total'];
             $myName = $_SESSION['user_name']; // Ambil nama user yang login
 
-            // INSERT dengan last_editor_name dan date_of_death
-            $stmt = $mysqli->prepare("INSERT INTO persons (user_id, tree_id, name, gender, place_of_birth, date_of_birth, is_alive, date_of_death, note, last_editor_name) VALUES (?,?,?,?,?,?,?,?,?,?)");
-            $stmt->bind_param("iissssisss", $targetUserId, $treeId, $name, $gender, $place_of_birth, $dob, $alive, $dod, $note, $myName);
+            // INSERT dengan last_editor_name, address, dan phone_number
+            $stmt = $mysqli->prepare("INSERT INTO persons (user_id, tree_id, name, gender, place_of_birth, address, phone_number, date_of_birth, is_alive, date_of_death, note, last_editor_name) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)");
+            $stmt->bind_param("iissssssisss", $targetUserId, $treeId, $name, $gender, $place_of_birth, $address, $phone_number, $dob, $alive, $dod, $note, $myName);
             // ...
 
             
@@ -1610,6 +1610,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $name = trim($_POST['name']??''); 
         $gender = trim($_POST['gender']??''); 
         $place_of_birth = trim($_POST['place_of_birth']??'');
+        $address = trim($_POST['address']??'');
+        $phone_number = trim($_POST['phone_number']??'');
         $dob = empty($_POST['date_of_birth']) ? null : $_POST['date_of_birth'];
         $alive = ($_POST['is_alive'] === '') ? 1 : (int)$_POST['is_alive'];
         $dod = ($alive == 0 && !empty($_POST['date_of_death'])) ? $_POST['date_of_death'] : null;
@@ -1645,8 +1647,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 $myName = $_SESSION['user_name']; // Ambil nama user yang login
                 // INSERT dengan user_id (Logika simpan data masuk di sini)
-                $stmt = $mysqli->prepare("INSERT INTO persons (user_id, tree_id, name, gender, place_of_birth, date_of_birth, is_alive, date_of_death, note, child_order, last_editor_name) VALUES (?,?,?,?,?,?,?,?,?,?,?)");
-                $stmt->bind_param("iisssssissi", $targetUserId, $treeId, $name, $gender, $place_of_birth, $dob, $alive, $dod, $note, $child_order, $myName);
+                $stmt = $mysqli->prepare("INSERT INTO persons (user_id, tree_id, name, gender, place_of_birth, address, phone_number, date_of_birth, is_alive, date_of_death, note, child_order, last_editor_name) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)");
+                $stmt->bind_param("iissssssissis", $targetUserId, $treeId, $name, $gender, $place_of_birth, $address, $phone_number, $dob, $alive, $dod, $note, $child_order, $myName);
                 
                 if ($stmt->execute()) {
                     $newId = $stmt->insert_id;
@@ -1705,6 +1707,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $name = trim($_POST['name']??''); 
                 $gender = trim($_POST['gender']??'');
                 $pob = trim($_POST['place_of_birth']??'');
+                $address = trim($_POST['address']??'');
+                $phone_number = trim($_POST['phone_number']??'');
                 $dob = empty($_POST['date_of_birth']) ? null : $_POST['date_of_birth'];
                 $alive = ($_POST['is_alive'] === '') ? 1 : (int)$_POST['is_alive'];
                 $dod = ($alive == 0 && !empty($_POST['date_of_death'])) ? $_POST['date_of_death'] : null;
@@ -1713,8 +1717,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $photoPath = handle_photo_upload('photo', $pOld['photo']);
                 $myName = $_SESSION['user_name'];
 
-                $stmt = $mysqli->prepare("UPDATE persons SET name=?, gender=?, place_of_birth=?, date_of_birth=?, is_alive=?, date_of_death=?, note=?, photo=?, child_order=?, last_editor_name=? WHERE id=? AND user_id=?");
-                $stmt->bind_param("sssssisssisi", $name, $gender, $pob, $dob, $alive, $dod, $note, $photoPath, $child_order, $myName, $id, $targetUserId);
+                $stmt = $mysqli->prepare("UPDATE persons SET name=?, gender=?, place_of_birth=?, address=?, phone_number=?, date_of_birth=?, is_alive=?, date_of_death=?, note=?, photo=?, child_order=?, last_editor_name=? WHERE id=? AND user_id=?");
+                $stmt->bind_param("ssssssissssisi", $name, $gender, $pob, $address, $phone_number, $dob, $alive, $dod, $note, $photoPath, $child_order, $myName, $id, $targetUserId);
                 
 
                 if ($stmt->execute()) {
@@ -2416,6 +2420,10 @@ if ($action === 'bio') {
                     <div class="flex-1"><label>Tempat Lahir</label><input type="text" name="place_of_birth"></div>
                     <div class="flex-1"><label>Tanggal Lahir</label><input type="date" name="date_of_birth"></div>
                 </div>
+                <div class="flex">
+                    <div class="flex-1"><label>Alamat</label><input type="text" name="address" placeholder="Contoh: Jl. Merdeka No. 10"></div>
+                    <div class="flex-1"><label>Nomor HP</label><input type="tel" name="phone_number" placeholder="Contoh: 62812345678"></div>
+                </div>
                 <label>Status Hidup</label>
                 <select name="is_alive" id="is_alive_add"><option value="1">Hidup</option><option value="0">Wafat</option></select>
                 <div id="date_of_death_field_add" style="display:none;">
@@ -2486,8 +2494,12 @@ if ($action === 'bio') {
                         <label>Nama</label>
                         <input type="text" name="name" value="<?= htmlspecialchars($currentPerson['name']) ?>" required>
                         <div class="flex">
-                            <div class="flex-1"><label>Tempat</label><input type="text" name="place_of_birth" value="<?= htmlspecialchars($currentPerson['place_of_birth']??'') ?>"></div>
-                            <div class="flex-1"><label>Tanggal</label><input type="date" name="date_of_birth" value="<?= htmlspecialchars($currentPerson['date_of_birth']??'') ?>"></div>
+                            <div class="flex-1"><label>Tempat Lahir</label><input type="text" name="place_of_birth" value="<?= htmlspecialchars($currentPerson['place_of_birth']??'') ?>"></div>
+                            <div class="flex-1"><label>Tanggal Lahir</label><input type="date" name="date_of_birth" value="<?= htmlspecialchars($currentPerson['date_of_birth']??'') ?>"></div>
+                        </div>
+                        <div class="flex">
+                            <div class="flex-1"><label>Alamat</label><input type="text" name="address" value="<?= htmlspecialchars($currentPerson['address']??'') ?>" placeholder="Contoh: Jl. Merdeka No. 10"></div>
+                            <div class="flex-1"><label>Nomor HP</label><input type="tel" name="phone_number" value="<?= htmlspecialchars($currentPerson['phone_number']??'') ?>" placeholder="Contoh: 62812345678"></div>
                         </div>
                         <div class="flex">
                             <div class="flex-1">
@@ -2570,6 +2582,12 @@ if ($action === 'bio') {
                         <p><strong>Lahir:</strong> <?= htmlspecialchars($currentPerson['place_of_birth']??'-') ?>, <?= $currentPerson['date_of_birth'] ? date('d M Y', strtotime($currentPerson['date_of_birth'])) : '-' ?></p>
                         <?php if ($currentPerson['is_alive'] == 0 && !empty($currentPerson['date_of_death'])): ?>
                             <p><strong>Wafat:</strong> <?= date('d M Y', strtotime($currentPerson['date_of_death'])) ?></p>
+                        <?php endif; ?>
+                        <?php if (!empty($currentPerson['address'])): ?>
+                            <p><strong>Alamat:</strong> <?= htmlspecialchars($currentPerson['address']) ?></p>
+                        <?php endif; ?>
+                        <?php if (!empty($currentPerson['phone_number'])): ?>
+                            <p><strong>Nomor HP:</strong> <a href="tel:<?= htmlspecialchars($currentPerson['phone_number']) ?>" style="color:#4f46e5; text-decoration:none;"><?= htmlspecialchars($currentPerson['phone_number']) ?></a></p>
                         <?php endif; ?>
                         <p><strong>Gender:</strong> <?= label_gender($currentPerson['gender']) ?></p>
                         
