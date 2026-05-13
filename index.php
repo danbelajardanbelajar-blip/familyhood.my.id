@@ -1477,9 +1477,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $countCheck = $mysqli->query("SELECT COUNT(*) as total FROM persons WHERE user_id = $targetUserId")->fetch_assoc()['total'];
             $myName = $_SESSION['user_name']; // Ambil nama user yang login
 
-            // INSERT dengan last_editor_name
-            $stmt = $mysqli->prepare("INSERT INTO persons (user_id, tree_id, name, gender, place_of_birth, date_of_birth, is_alive, note, last_editor_name) VALUES (?,?,?,?,?,?,?,?,?)");
-            $stmt->bind_param("iisssssss", $targetUserId, $treeId, $name, $gender, $place_of_birth, $dob, $alive, $note, $myName);
+            // INSERT dengan last_editor_name dan date_of_death
+            $stmt = $mysqli->prepare("INSERT INTO persons (user_id, tree_id, name, gender, place_of_birth, date_of_birth, is_alive, date_of_death, note, last_editor_name) VALUES (?,?,?,?,?,?,?,?,?,?)");
+            $stmt->bind_param("iissssisss", $targetUserId, $treeId, $name, $gender, $place_of_birth, $dob, $alive, $dod, $note, $myName);
             // ...
 
             
@@ -1612,6 +1612,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $place_of_birth = trim($_POST['place_of_birth']??'');
         $dob = empty($_POST['date_of_birth']) ? null : $_POST['date_of_birth'];
         $alive = ($_POST['is_alive'] === '') ? 1 : (int)$_POST['is_alive'];
+        $dod = ($alive == 0 && !empty($_POST['date_of_death'])) ? $_POST['date_of_death'] : null;
         $note = trim($_POST['note']??'');
         $child_order = (isset($_POST['child_order']) && intval($_POST['child_order']) > 0) ? intval($_POST['child_order']) : null;
         
@@ -1644,8 +1645,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 $myName = $_SESSION['user_name']; // Ambil nama user yang login
                 // INSERT dengan user_id (Logika simpan data masuk di sini)
-                $stmt = $mysqli->prepare("INSERT INTO persons (user_id, tree_id, name, gender, place_of_birth, date_of_birth, is_alive, note, child_order, last_editor_name) VALUES (?,?,?,?,?,?,?,?,?,?)");
-                $stmt->bind_param("iissssissi", $targetUserId, $treeId, $name, $gender, $place_of_birth, $dob, $alive, $note, $child_order, $myName);
+                $stmt = $mysqli->prepare("INSERT INTO persons (user_id, tree_id, name, gender, place_of_birth, date_of_birth, is_alive, date_of_death, note, child_order, last_editor_name) VALUES (?,?,?,?,?,?,?,?,?,?,?)");
+                $stmt->bind_param("iisssssissi", $targetUserId, $treeId, $name, $gender, $place_of_birth, $dob, $alive, $dod, $note, $child_order, $myName);
                 
                 if ($stmt->execute()) {
                     $newId = $stmt->insert_id;
@@ -1706,13 +1707,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pob = trim($_POST['place_of_birth']??'');
                 $dob = empty($_POST['date_of_birth']) ? null : $_POST['date_of_birth'];
                 $alive = ($_POST['is_alive'] === '') ? 1 : (int)$_POST['is_alive'];
+                $dod = ($alive == 0 && !empty($_POST['date_of_death'])) ? $_POST['date_of_death'] : null;
                 $note = trim($_POST['note']??'');
                 $child_order = (isset($_POST['child_order']) && intval($_POST['child_order']) > 0) ? intval($_POST['child_order']) : null;
                 $photoPath = handle_photo_upload('photo', $pOld['photo']);
                 $myName = $_SESSION['user_name'];
 
-                $stmt = $mysqli->prepare("UPDATE persons SET name=?, gender=?, place_of_birth=?, date_of_birth=?, is_alive=?, note=?, photo=?, child_order=?, last_editor_name=? WHERE id=? AND user_id=?");
-                $stmt->bind_param("ssssisssisi", $name, $gender, $pob, $dob, $alive, $note, $photoPath, $child_order, $myName, $id, $targetUserId);
+                $stmt = $mysqli->prepare("UPDATE persons SET name=?, gender=?, place_of_birth=?, date_of_birth=?, is_alive=?, date_of_death=?, note=?, photo=?, child_order=?, last_editor_name=? WHERE id=? AND user_id=?");
+                $stmt->bind_param("sssssisssisi", $name, $gender, $pob, $dob, $alive, $dod, $note, $photoPath, $child_order, $myName, $id, $targetUserId);
                 
 
                 if ($stmt->execute()) {
@@ -2415,7 +2417,11 @@ if ($action === 'bio') {
                     <div class="flex-1"><label>Tanggal Lahir</label><input type="date" name="date_of_birth"></div>
                 </div>
                 <label>Status Hidup</label>
-                <select name="is_alive"><option value="1">Hidup</option><option value="0">Wafat</option></select>
+                <select name="is_alive" id="is_alive_add"><option value="1">Hidup</option><option value="0">Wafat</option></select>
+                <div id="date_of_death_field_add" style="display:none;">
+                    <label>Tanggal Wafat</label>
+                    <input type="date" name="date_of_death" id="date_of_death_add">
+                </div>
                 <label>Catatan</label>
                 <textarea name="note" placeholder="Tambahkan catatan khusus..."></textarea>
                 
@@ -2496,11 +2502,15 @@ if ($action === 'bio') {
                         </div>
                             <div class="flex-1">
                                 <label>Status</label>
-                                <select name="is_alive">
+                                <select name="is_alive" id="is_alive_edit">
                                     <option value="1" <?= $currentPerson['is_alive']==1?'selected':'' ?>>Hidup</option>
                                     <option value="0" <?= $currentPerson['is_alive']==0?'selected':'' ?>>Wafat</option>
                                 </select>
                             </div>
+                        </div>
+                        <div id="date_of_death_field_edit" style="display:<?= $currentPerson['is_alive']==0?'block':'none' ?>;">
+                            <label>Tanggal Wafat</label>
+                            <input type="date" name="date_of_death" id="date_of_death_edit" value="<?= htmlspecialchars($currentPerson['date_of_death']??'') ?>">
                         </div>
                         <label>Catatan</label><textarea name="note"><?= htmlspecialchars($currentPerson['note']??'') ?></textarea>
                         
@@ -2558,6 +2568,9 @@ if ($action === 'bio') {
                         </div>
                     <?php endif; ?>    
                         <p><strong>Lahir:</strong> <?= htmlspecialchars($currentPerson['place_of_birth']??'-') ?>, <?= $currentPerson['date_of_birth'] ? date('d M Y', strtotime($currentPerson['date_of_birth'])) : '-' ?></p>
+                        <?php if ($currentPerson['is_alive'] == 0 && !empty($currentPerson['date_of_death'])): ?>
+                            <p><strong>Wafat:</strong> <?= date('d M Y', strtotime($currentPerson['date_of_death'])) ?></p>
+                        <?php endif; ?>
                         <p><strong>Gender:</strong> <?= label_gender($currentPerson['gender']) ?></p>
                         
                         <?php if($currentPerson['note']): ?>
@@ -4148,6 +4161,30 @@ document.addEventListener('DOMContentLoaded', () => {
             loadPage(link.href);
         }
     });
+
+    // Toggle date_of_death field based on is_alive status (Add Person Form)
+    const isAliveAdd = document.getElementById('is_alive_add');
+    const dateOfDeathFieldAdd = document.getElementById('date_of_death_field_add');
+    if (isAliveAdd && dateOfDeathFieldAdd) {
+        isAliveAdd.addEventListener('change', function() {
+            dateOfDeathFieldAdd.style.display = this.value === '0' ? 'block' : 'none';
+            if (this.value === '1') {
+                document.getElementById('date_of_death_add').value = '';
+            }
+        });
+    }
+
+    // Toggle date_of_death field based on is_alive status (Edit Bio Form)
+    const isAliveEdit = document.getElementById('is_alive_edit');
+    const dateOfDeathFieldEdit = document.getElementById('date_of_death_field_edit');
+    if (isAliveEdit && dateOfDeathFieldEdit) {
+        isAliveEdit.addEventListener('change', function() {
+            dateOfDeathFieldEdit.style.display = this.value === '0' ? 'block' : 'none';
+            if (this.value === '1') {
+                document.getElementById('date_of_death_edit').value = '';
+            }
+        });
+    }
 
     window.addEventListener('popstate', (e) => {
         if (e.state && e.state.url) loadPage(e.state.url, false);
