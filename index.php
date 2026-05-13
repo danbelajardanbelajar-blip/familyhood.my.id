@@ -267,11 +267,18 @@ if ($isAdmin && isset($_GET['view_user_id']) && isset($_GET['view_tree_id'])) {
             // Simpan konteks tree yang sedang diintip ke SESSION ADMIN
             $_SESSION['admin_viewing_tree_id']   = $requestedTree;
             $_SESSION['admin_viewing_tree_name'] = $check['tree_name'];
+            $_SESSION['admin_viewing_user_id']   = $requestedId;
             
         } else {
             die("Akses Ditolak: User ini tidak mengizinkan Admin melihat pohon keluarga ($requestedTree).");
         }
     }
+}
+
+// Jika admin sudah dalam mode intip, lanjutkan mode tersebut pada request berikutnya
+if ($isAdmin && !$isViewingOthers && isset($_SESSION['admin_viewing_tree_id']) && isset($_SESSION['admin_viewing_user_id'])) {
+    $isViewingOthers = true;
+    $targetUserId = intval($_SESSION['admin_viewing_user_id']);
 }
 
 // --- HELPER FUNCTIONS ---
@@ -2737,6 +2744,9 @@ if ($action === 'bio') {
 
         <?php
         $activeTreeId = $_SESSION['current_tree_id'] ?? 0;
+        if ($isAdmin && $isViewingOthers && isset($_SESSION['admin_viewing_tree_id'])) {
+            $activeTreeId = intval($_SESSION['admin_viewing_tree_id']);
+        }
         
         // --- CEK APAKAH SUDAH PILIH POHON? ---
         if ($activeTreeId == 0) { 
