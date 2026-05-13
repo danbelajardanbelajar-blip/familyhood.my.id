@@ -2596,6 +2596,7 @@ if ($action === 'bio') {
                     <?php if (!$isViewingOthers): ?>
                     <h3 class="section-title" style="margin-top:20px;">Hubungkan</h3>
                     <?php endif; ?>
+                    <div style="font-size:0.95rem; color:#475569; font-weight:600; margin-bottom:10px;">Tambahkan</div>
                 <div style="display:flex; gap:5px; flex-wrap:wrap;"> <a href="?action=add_person&from_id=<?= $currentPerson['id'] ?>&relation_type=ayah" class="btn btn-sm btn-secondary">+ Ayah</a>
                     <a href="?action=add_person&from_id=<?= $currentPerson['id'] ?>&relation_type=ibu" class="btn btn-sm btn-secondary">+ Ibu</a>
                     
