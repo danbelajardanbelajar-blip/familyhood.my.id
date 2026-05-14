@@ -3870,7 +3870,7 @@ if ($activeTreeId == 0): ?>
     </div>
 
     <!-- Pan/Zoom container -->
-    <div id="ll-outer" style="width:100%;height:100%;overflow:hidden;cursor:grab;">
+    <div id="ll-outer" style="width:100%;height:100%;overflow:hidden;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;">
         <div id="ll-wrapper" style="display:inline-block;transform-origin:0 0;will-change:transform;padding:0;">
             <?= $ll_svgOutput ?>
         </div>
@@ -3879,46 +3879,157 @@ if ($activeTreeId == 0): ?>
 
 <script>
 (function() {
-    var _scale = 1, _tx = 0, _ty = 0, _drag = false, _sx = 0, _sy = 0, _lDist = 0;
+    var outer   = document.getElementById('ll-outer');
+    var wrapper = document.getElementById('ll-wrapper');
+    if (!outer || !wrapper) return;
 
+    var _scale = 1, _tx = 0, _ty = 0;
+    var _drag = false, _sx = 0, _sy = 0;
+    var _pinch = false, _pDist = 0, _pMx = 0, _pMy = 0;
+    var _vx = 0, _vy = 0, _lx = 0, _ly = 0, _lt = 0, _raf = null;
+
+    /* ── terapkan transform ── */
     function applyT() {
-        var w = document.getElementById('ll-wrapper');
-        if (w) w.style.transform = 'translate(' + _tx + 'px,' + _ty + 'px) scale(' + _scale + ')';
+        wrapper.style.transform = 'translate('+_tx+'px,'+_ty+'px) scale('+_scale+')';
     }
 
-    window.llZoom = function(f) { _scale = Math.min(4, Math.max(0.1, _scale * f)); applyT(); };
-    window.llReset = function() { _scale = 1; _tx = 0; _ty = 0; applyT(); };
+    /* ── zoom di sekitar titik (cx,cy) dalam koordinat outer ── */
+    function zoomAt(f, cx, cy) {
+        var ns = Math.min(4, Math.max(0.1, _scale * f));
+        _tx = cx - (cx - _tx) * (ns / _scale);
+        _ty = cy - (cy - _ty) * (ns / _scale);
+        _scale = ns;
+        applyT();
+    }
 
-    var outer = document.getElementById('ll-outer');
-    if (!outer) return;
+    /* ── tombol toolbar ── */
+    window.llZoom = function(f) {
+        var r = outer.getBoundingClientRect();
+        zoomAt(f, r.width / 2, r.height / 2);
+    };
+    window.llReset = function() { _scale=1; _tx=0; _ty=0; applyT(); };
 
+    /* ── inertia setelah drag dilepas ── */
+    function startInertia() {
+        cancelAnimationFrame(_raf);
+        (function step() {
+            _vx *= 0.9; _vy *= 0.9;
+            if (Math.abs(_vx) < 0.3 && Math.abs(_vy) < 0.3) return;
+            _tx += _vx; _ty += _vy;
+            applyT();
+            _raf = requestAnimationFrame(step);
+        })();
+    }
+
+    /* ── blokir pointer events pada wrapper saat drag
+           agar link SVG tidak mencuri event ── */
+    function blockLinks()  { wrapper.style.pointerEvents = 'none'; }
+    function restoreLinks(){ wrapper.style.pointerEvents = ''; }
+
+    /* ════════════ MOUSE ════════════ */
     outer.addEventListener('mousedown', function(e) {
-        _drag = true; _sx = e.clientX - _tx; _sy = e.clientY - _ty;
+        if (e.button !== 0) return;
+        cancelAnimationFrame(_raf);
+        _drag = true;
+        _sx = e.clientX - _tx; _sy = e.clientY - _ty;
+        _lx = e.clientX; _ly = e.clientY; _lt = Date.now();
+        _vx = _vy = 0;
         outer.style.cursor = 'grabbing';
+        blockLinks();
+        e.preventDefault();
     });
-    window.addEventListener('mouseup', function() { _drag = false; outer.style.cursor = 'grab'; });
+    window.addEventListener('mouseup', function() {
+        if (!_drag) return;
+        _drag = false;
+        outer.style.cursor = 'grab';
+        restoreLinks();
+        startInertia();
+    });
     window.addEventListener('mousemove', function(e) {
         if (!_drag) return;
-        _tx = e.clientX - _sx; _ty = e.clientY - _sy; applyT();
+        var now = Date.now(), dt = Math.max(1, now - _lt);
+        _vx = (e.clientX - _lx) * 16 / dt;
+        _vy = (e.clientY - _ly) * 16 / dt;
+        _lx = e.clientX; _ly = e.clientY; _lt = now;
+        _tx = e.clientX - _sx; _ty = e.clientY - _sy;
+        applyT();
     });
+
+    /* zoom scroll di sekitar kursor */
     outer.addEventListener('wheel', function(e) {
         e.preventDefault();
-        llZoom(e.deltaY < 0 ? 1.1 : 0.9);
+        cancelAnimationFrame(_raf);
+        var r = outer.getBoundingClientRect();
+        zoomAt(e.deltaY < 0 ? 1.12 : 0.9, e.clientX - r.left, e.clientY - r.top);
     }, { passive: false });
 
+    /* ════════════ TOUCH ════════════ */
     outer.addEventListener('touchstart', function(e) {
-        if (e.touches.length === 1) { _drag=true; _sx=e.touches[0].clientX-_tx; _sy=e.touches[0].clientY-_ty; }
-        if (e.touches.length === 2) { _lDist = Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY); }
-    }, { passive: true });
-    outer.addEventListener('touchmove', function(e) {
         e.preventDefault();
-        if (e.touches.length === 1 && _drag) { _tx=e.touches[0].clientX-_sx; _ty=e.touches[0].clientY-_sy; applyT(); }
-        if (e.touches.length === 2) {
-            var d = Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY);
-            llZoom(d / _lDist); _lDist = d;
+        cancelAnimationFrame(_raf);
+        _vx = _vy = 0;
+        blockLinks();
+
+        if (e.touches.length === 1) {
+            _drag = true; _pinch = false;
+            _sx = e.touches[0].clientX - _tx;
+            _sy = e.touches[0].clientY - _ty;
+            _lx = e.touches[0].clientX; _ly = e.touches[0].clientY; _lt = Date.now();
+        } else if (e.touches.length >= 2) {
+            _drag = false; _pinch = true;
+            _pDist = Math.hypot(
+                e.touches[0].clientX - e.touches[1].clientX,
+                e.touches[0].clientY - e.touches[1].clientY
+            );
+            var r = outer.getBoundingClientRect();
+            _pMx = (e.touches[0].clientX + e.touches[1].clientX) / 2 - r.left;
+            _pMy = (e.touches[0].clientY + e.touches[1].clientY) / 2 - r.top;
         }
     }, { passive: false });
-    outer.addEventListener('touchend', function() { _drag = false; });
+
+    outer.addEventListener('touchmove', function(e) {
+        e.preventDefault();
+        if (e.touches.length === 1 && _drag) {
+            var now = Date.now(), dt = Math.max(1, now - _lt);
+            _vx = (e.touches[0].clientX - _lx) * 16 / dt;
+            _vy = (e.touches[0].clientY - _ly) * 16 / dt;
+            _lx = e.touches[0].clientX; _ly = e.touches[0].clientY; _lt = now;
+            _tx = e.touches[0].clientX - _sx;
+            _ty = e.touches[0].clientY - _sy;
+            applyT();
+        } else if (e.touches.length >= 2 && _pinch) {
+            var d = Math.hypot(
+                e.touches[0].clientX - e.touches[1].clientX,
+                e.touches[0].clientY - e.touches[1].clientY
+            );
+            var r = outer.getBoundingClientRect();
+            var mx = (e.touches[0].clientX + e.touches[1].clientX) / 2 - r.left;
+            var my = (e.touches[0].clientY + e.touches[1].clientY) / 2 - r.top;
+            if (_pDist > 0) zoomAt(d / _pDist, mx, my);
+            _pDist = d; _pMx = mx; _pMy = my;
+        }
+    }, { passive: false });
+
+    outer.addEventListener('touchend', function(e) {
+        if (e.touches.length === 0) {
+            if (_drag) startInertia();
+            _drag = false; _pinch = false;
+            restoreLinks();
+        } else if (e.touches.length === 1) {
+            /* dari 2 jari ke 1 jari → lanjut drag */
+            _pinch = false; _drag = true;
+            _sx = e.touches[0].clientX - _tx;
+            _sy = e.touches[0].clientY - _ty;
+            _lx = e.touches[0].clientX; _ly = e.touches[0].clientY; _lt = Date.now();
+            _vx = _vy = 0;
+        }
+    }, { passive: false });
+
+    outer.addEventListener('touchcancel', function() {
+        _drag = false; _pinch = false;
+        restoreLinks();
+        cancelAnimationFrame(_raf);
+    }, { passive: true });
 })();
 </script>
 
