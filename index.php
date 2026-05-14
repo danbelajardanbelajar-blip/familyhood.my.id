@@ -3582,13 +3582,13 @@ if ($activeTreeId == 0): ?>
 
     // Cari root: punya anak tapi tidak punya orang tua
     $rootIds = [];
-    foreach ($allPersonsData as $pid => $_) {
+    foreach ($allPersonsData as $pid => $_p) {
         $isParent = !empty($parentChildren[$pid]);
         $isChild  = !empty($childParents[$pid]);
         if ($isParent && !$isChild) $rootIds[] = $pid;
     }
     if (empty($rootIds)) {
-        foreach ($allPersonsData as $pid => $_) {
+        foreach ($allPersonsData as $pid => $_p) {
             if (empty($childParents[$pid])) $rootIds[] = $pid;
         }
     }
@@ -3596,319 +3596,389 @@ if ($activeTreeId == 0): ?>
 
     function fh_build_ll_node($pid, $persons, $parentChildren, $spouses, &$visited, $gen) {
         if (isset($visited[$pid])) return null;
+        if (!isset($persons[$pid])) return null;
         $visited[$pid] = true;
         $p = $persons[$pid];
-
         $node = [
-            'id'       => $pid,
-            'name'     => $p['name'],
-            'gender'   => $p['gender'],
+            'id'       => (int)$pid,
+            'name'     => (string)($p['name'] ?? ''),
+            'gender'   => (string)($p['gender'] ?? 'unknown'),
             'is_alive' => (int)($p['is_alive'] ?? 1),
-            'gen'      => $gen,
+            'gen'      => (int)$gen,
             'spouses'  => [],
             'children' => [],
         ];
-
-        // Pasangan (diurutkan berdasarkan spouse_order)
         if (!empty($spouses[$pid])) {
             $sl = $spouses[$pid];
             uksort($sl, function($a, $b) use ($sl) {
                 return ($sl[$a]['order'] ?? 0) - ($sl[$b]['order'] ?? 0);
             });
-            foreach ($sl as $sid => $_) {
+            foreach ($sl as $sid => $_s) {
                 if (!isset($visited[$sid]) && isset($persons[$sid])) {
                     $visited[$sid] = true;
                     $sp = $persons[$sid];
                     $node['spouses'][] = [
-                        'id'       => $sid,
-                        'name'     => $sp['name'],
-                        'gender'   => $sp['gender'],
+                        'id'       => (int)$sid,
+                        'name'     => (string)($sp['name'] ?? ''),
+                        'gender'   => (string)($sp['gender'] ?? 'unknown'),
                         'is_alive' => (int)($sp['is_alive'] ?? 1),
                     ];
                 }
             }
         }
-
-        // Anak diurutkan berdasarkan child_order (tertua di atas)
         if (!empty($parentChildren[$pid])) {
             $cids = array_keys($parentChildren[$pid]);
             usort($cids, function($a, $b) use ($persons) {
-                $oa = $persons[$a]['child_order'] ?? 9999;
-                $ob = $persons[$b]['child_order'] ?? 9999;
+                $oa = isset($persons[$a]) ? ($persons[$a]['child_order'] ?? 9999) : 9999;
+                $ob = isset($persons[$b]) ? ($persons[$b]['child_order'] ?? 9999) : 9999;
                 return $oa !== $ob ? $oa - $ob : $a - $b;
             });
             foreach ($cids as $cid) {
                 $cn = fh_build_ll_node($cid, $persons, $parentChildren, $spouses, $visited, $gen + 1);
-                if ($cn) $node['children'][] = $cn;
+                if ($cn !== null) $node['children'][] = $cn;
             }
         }
         return $node;
     }
 
-    $visited = [];
-    $treeRoots = [];
+    $ll_visited = [];
+    $treeRoots  = [];
     foreach ($rootIds as $rid) {
-        $n = fh_build_ll_node($rid, $allPersonsData, $parentChildren, $spouses, $visited, 1);
-        if ($n) $treeRoots[] = $n;
+        $n = fh_build_ll_node($rid, $allPersonsData, $parentChildren, $spouses, $ll_visited, 1);
+        if ($n !== null) $treeRoots[] = $n;
     }
-    $treeJson = json_encode($treeRoots, JSON_UNESCAPED_UNICODE);
+    $treeJson   = json_encode($treeRoots, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    $debugInfo  = 'Persons: '.count($allPersonsData).' | Roots: '.count($treeRoots).' | Nodes JSON: '.strlen($treeJson).'b';
 ?>
 
-<div style="position:relative; overflow:hidden; background:#f1f5f9; border-radius:12px; height:88vh; border:1px solid #e2e8f0; user-select:none;">
+<div style="position:relative;background:#f1f5f9;border-radius:12px;border:1px solid #e2e8f0;height:88vh;overflow:hidden;user-select:none;">
 
     <!-- Toolbar -->
     <div style="position:absolute;top:12px;left:12px;z-index:20;display:flex;gap:6px;align-items:center;background:rgba(255,255,255,0.97);padding:8px 14px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.12);">
         <span style="font-weight:700;color:#1e293b;font-size:0.9rem;">📊 Level Line</span>
         <span style="color:#cbd5e1;margin:0 2px;">|</span>
-        <button onclick="llZoom(1.2)" title="Zoom In"  style="border:none;background:#f1f5f9;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:1rem;font-weight:700;color:#334155;">+</button>
-        <button onclick="llZoom(0.8)" title="Zoom Out" style="border:none;background:#f1f5f9;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:1rem;font-weight:700;color:#334155;">−</button>
-        <button onclick="llReset()"  title="Reset"     style="border:none;background:#f1f5f9;border-radius:6px;padding:4px 9px;cursor:pointer;font-size:0.85rem;color:#334155;">⊡ Reset</button>
+        <button onclick="llZoom(1.2)" style="border:none;background:#f1f5f9;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:1rem;font-weight:700;color:#334155;">+</button>
+        <button onclick="llZoom(0.8)" style="border:none;background:#f1f5f9;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:1rem;font-weight:700;color:#334155;">−</button>
+        <button onclick="llReset()"   style="border:none;background:#f1f5f9;border-radius:6px;padding:4px 9px;cursor:pointer;font-size:0.82rem;color:#334155;">⊡ Reset</button>
     </div>
 
-    <!-- Legenda generasi -->
-    <div id="ll-legend" style="position:absolute;top:12px;right:12px;z-index:20;background:rgba(255,255,255,0.97);padding:8px 12px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.12);font-size:0.78rem;color:#475569;max-width:160px;"></div>
+    <!-- Legenda -->
+    <div id="ll-legend" style="position:absolute;top:12px;right:12px;z-index:20;background:rgba(255,255,255,0.97);padding:8px 12px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.12);font-size:0.78rem;color:#475569;"></div>
 
-    <!-- Canvas pan/zoom wrapper -->
-    <div id="ll-outer" style="width:100%;height:100%;overflow:hidden;cursor:grab;touch-action:none;">
-        <div id="ll-wrapper" style="display:inline-block;transform-origin:0 0;">
-            <div id="ll-canvas"></div>
+    <!-- Debug info (hapus setelah berfungsi) -->
+    <div style="position:absolute;bottom:8px;left:8px;z-index:20;background:rgba(0,0,0,0.55);color:#fff;font-size:10px;padding:4px 8px;border-radius:6px;"><?= htmlspecialchars($debugInfo) ?></div>
+
+    <!-- Pan/Zoom canvas -->
+    <div id="ll-outer" style="width:100%;height:100%;overflow:hidden;cursor:grab;">
+        <div id="ll-wrapper" style="display:inline-block;transform-origin:0 0;will-change:transform;">
+            <canvas id="ll-canvas-fallback" style="display:none;"></canvas>
+            <div id="ll-svg-host"></div>
         </div>
     </div>
 </div>
 
 <script>
-(function() {
-"use strict";
+var LL = (function() {
 
-// ─── Data ───────────────────────────────────────────────────────────────────
-const ROOTS = <?= $treeJson ?>;
+    /* ── data dari PHP ── */
+    var ROOTS = <?= $treeJson ?>;
 
-// ─── Config ─────────────────────────────────────────────────────────────────
-const C = {
-    nodeW:    200,   // lebar kotak orang
-    personH:  52,    // tinggi baris orang
-    spouseH:  36,    // tinggi baris pasangan
-    hGap:     80,    // jarak horizontal antar generasi
-    vGap:     14,    // jarak vertikal antar saudara
-    padX:     30,
-    padY:     30,
-    rx:       9,     // border-radius kotak
-    lineW:    2,
-    lineC:    '#94a3b8',
-};
+    /* ── konstanta layout ── */
+    var NW   = 200;   // node width
+    var NPH  = 52;    // tinggi baris orang utama
+    var NSH  = 36;    // tinggi baris pasangan
+    var HG   = 80;    // horizontal gap
+    var VG   = 16;    // vertical gap
+    var PX   = 40;    // padding X
+    var PY   = 40;    // padding Y
+    var RX   = 8;     // border-radius
+    var LC   = '#94a3b8'; // warna garis
+    var LW   = '2';
 
-const GEN_FILL   = ['#dbeafe','#dcfce7','#fef3c7','#fce7f3','#ede9fe','#ffedd5','#ecfeff','#f0fdf4','#fef9c3','#fae8ff'];
-const GEN_STROKE = ['#93c5fd','#86efac','#fde68a','#f9a8d4','#c4b5fd','#fdba74','#67e8f9','#6ee7b7','#fef08a','#e879f9'];
-const GEN_TEXT   = ['#1e40af','#166534','#92400e','#9d174d','#5b21b6','#9a3412','#164e63','#14532d','#854d0e','#86198f'];
+    var FILLS   = ['#dbeafe','#dcfce7','#fef3c7','#fce7f3','#ede9fe','#ffedd5','#ecfeff','#f0fdf4','#fef9c3','#fae8ff'];
+    var STROKES = ['#93c5fd','#86efac','#fde68a','#f9a8d4','#c4b5fd','#fdba74','#67e8f9','#6ee7b7','#fef08a','#e879f9'];
+    var TEXTS   = ['#1e40af','#166534','#92400e','#9d174d','#5b21b6','#9a3412','#164e63','#14532d','#854d0e','#86198f'];
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-const NS = 'http://www.w3.org/2000/svg';
-function el(tag, attrs) {
-    const e = document.createElementNS(NS, tag);
-    for (const [k,v] of Object.entries(attrs)) e.setAttribute(k, v);
-    return e;
-}
-function trunc(s, n=24) { return s && s.length > n ? s.slice(0, n-1) + '…' : (s || ''); }
-function nodeH(n) { return C.personH + n.spouses.length * C.spouseH; }
+    var SVG_NS = 'http://www.w3.org/2000/svg';
 
-function subtreeH(n) {
-    const myH = nodeH(n) + C.vGap;
-    if (!n.children || !n.children.length) return myH;
-    let ch = 0; for (const c of n.children) ch += subtreeH(c);
-    return Math.max(myH, ch);
-}
-
-// ─── Layout ──────────────────────────────────────────────────────────────────
-function layout(n, x, startY) {
-    const sh = subtreeH(n), nh = nodeH(n);
-    n._x    = x;
-    n._y    = startY + sh / 2 - nh / 2;
-    n._midY = n._y + nh / 2;   // pusat kotak (untuk konektor)
-    let cy = startY;
-    if (n.children) for (const c of n.children) { layout(c, x + C.nodeW + C.hGap, cy); cy += subtreeH(c); }
-}
-
-// ─── Draw ────────────────────────────────────────────────────────────────────
-function drawLines(svg, n) {
-    if (!n.children || !n.children.length) return;
-
-    const stemX = n._x + C.nodeW + C.hGap / 2;
-    const parentY = n._midY;
-
-    // Garis horizontal dari kotak orang tua ke tiang vertikal
-    svg.appendChild(el('line', { x1: n._x + C.nodeW, y1: parentY, x2: stemX, y2: parentY,
-        stroke: C.lineC, 'stroke-width': C.lineW, 'stroke-linecap': 'round' }));
-
-    // Tiang vertikal (jika anak > 1)
-    if (n.children.length > 1) {
-        const topY    = n.children[0]._midY;
-        const bottomY = n.children[n.children.length - 1]._midY;
-        svg.appendChild(el('line', { x1: stemX, y1: topY, x2: stemX, y2: bottomY,
-            stroke: C.lineC, 'stroke-width': C.lineW, 'stroke-linecap': 'round' }));
+    /* ── helpers ── */
+    function mkEl(tag, attrs) {
+        var e = document.createElementNS(SVG_NS, tag);
+        for (var k in attrs) { if (attrs.hasOwnProperty(k)) e.setAttribute(k, attrs[k]); }
+        return e;
     }
 
-    // Cabang horizontal ke setiap anak
-    for (const c of n.children) {
-        svg.appendChild(el('line', { x1: stemX, y1: c._midY, x2: c._x, y2: c._midY,
-            stroke: C.lineC, 'stroke-width': C.lineW, 'stroke-linecap': 'round' }));
-        drawLines(svg, c);
-    }
-}
-
-function drawNode(svg, n) {
-    const nh = nodeH(n);
-    const gi = (n.gen - 1) % GEN_FILL.length;
-    const fillC   = GEN_FILL[gi];
-    const strokeC = GEN_STROKE[gi];
-    const textC   = GEN_TEXT[gi];
-
-    // Bayangan tipis
-    svg.appendChild(el('rect', { x: n._x+2, y: n._y+3, width: C.nodeW, height: nh,
-        rx: C.rx, fill: 'rgba(0,0,0,0.07)' }));
-
-    // Kotak utama
-    const box = el('rect', { x: n._x, y: n._y, width: C.nodeW, height: nh,
-        rx: C.rx, fill: fillC, stroke: strokeC, 'stroke-width': 1.5, style: 'cursor:pointer' });
-    box.addEventListener('click', () => location.href = '?action=view_person&id=' + n.id);
-    svg.appendChild(box);
-
-    // Indikator almarhum (garis diagonal di pojok)
-    if (!n.is_alive) {
-        svg.appendChild(el('line', { x1: n._x+C.nodeW-18, y1: n._y+4, x2: n._x+C.nodeW-4, y2: n._y+18,
-            stroke: '#94a3b8', 'stroke-width': 1.5 }));
+    function trunc(s, n) {
+        n = n || 24;
+        if (!s) return '';
+        return s.length > n ? s.slice(0, n - 1) + '…' : s;
     }
 
-    // Nama orang utama
-    const boldT = el('text', { x: n._x + C.nodeW/2, y: n._y + C.personH/2,
-        'text-anchor': 'middle', 'dominant-baseline': 'middle',
-        'font-size': '12.5px', 'font-weight': '700', fill: textC,
-        'font-family': 'system-ui,-apple-system,sans-serif', style: 'cursor:pointer' });
-    boldT.textContent = trunc(n.name);
-    boldT.addEventListener('click', () => location.href = '?action=view_person&id=' + n.id);
-    svg.appendChild(boldT);
+    function nodeH(n) {
+        return NPH + (n.spouses ? n.spouses.length : 0) * NSH;
+    }
 
-    // Dot gender
-    const dotC = n.gender === 'male' ? '#3b82f6' : n.gender === 'female' ? '#ec4899' : '#94a3b8';
-    svg.appendChild(el('circle', { cx: n._x + C.nodeW - 10, cy: n._y + C.personH/2, r: 4, fill: dotC }));
+    function subtreeH(n) {
+        var myH = nodeH(n) + VG;
+        if (!n.children || n.children.length === 0) return myH;
+        var ch = 0;
+        for (var i = 0; i < n.children.length; i++) ch += subtreeH(n.children[i]);
+        return ch > myH ? ch : myH;
+    }
 
-    // Pasangan
-    for (let i = 0; i < n.spouses.length; i++) {
-        const sp  = n.spouses[i];
-        const spY = n._y + C.personH + i * C.spouseH;
+    /* ── layout (posisi koordinat) ── */
+    function layout(n, x, startY) {
+        var sh = subtreeH(n);
+        var nh = nodeH(n);
+        n._x    = x;
+        n._y    = startY + sh / 2 - nh / 2;
+        n._midY = n._y + nh / 2;
+        n._nh   = nh;
+        var cy = startY;
+        if (n.children) {
+            for (var i = 0; i < n.children.length; i++) {
+                layout(n.children[i], x + NW + HG, cy);
+                cy += subtreeH(n.children[i]);
+            }
+        }
+    }
 
-        // Garis pemisah
-        svg.appendChild(el('line', { x1: n._x+10, y1: spY, x2: n._x+C.nodeW-10, y2: spY,
-            stroke: strokeC, 'stroke-width': 1 }));
+    /* ── gambar garis konektor ── */
+    function drawLines(svg, n) {
+        if (!n.children || n.children.length === 0) return;
+        var stemX   = n._x + NW + HG / 2;
+        var parentY = n._midY;
 
-        // Nama pasangan
-        const spT = el('text', { x: n._x + C.nodeW/2, y: spY + C.spouseH/2,
+        // garis dari kotak orang tua ke tiang
+        svg.appendChild(mkEl('line', {
+            x1: n._x + NW, y1: parentY, x2: stemX, y2: parentY,
+            stroke: LC, 'stroke-width': LW, 'stroke-linecap': 'round'
+        }));
+
+        // tiang vertikal
+        if (n.children.length > 1) {
+            svg.appendChild(mkEl('line', {
+                x1: stemX, y1: n.children[0]._midY,
+                x2: stemX, y2: n.children[n.children.length - 1]._midY,
+                stroke: LC, 'stroke-width': LW, 'stroke-linecap': 'round'
+            }));
+        }
+
+        // cabang horizontal ke setiap anak
+        for (var i = 0; i < n.children.length; i++) {
+            var c = n.children[i];
+            svg.appendChild(mkEl('line', {
+                x1: stemX, y1: c._midY, x2: c._x, y2: c._midY,
+                stroke: LC, 'stroke-width': LW, 'stroke-linecap': 'round'
+            }));
+            drawLines(svg, c);
+        }
+    }
+
+    /* ── gambar satu kotak node ── */
+    function drawNode(svg, n) {
+        var nh      = n._nh;
+        var gi      = (n.gen - 1) % FILLS.length;
+        var fillC   = FILLS[gi];
+        var strokeC = STROKES[gi];
+        var textC   = TEXTS[gi];
+        var pid     = n.id;
+
+        // bayangan
+        svg.appendChild(mkEl('rect', {
+            x: n._x + 2, y: n._y + 3, width: NW, height: nh,
+            rx: RX, fill: 'rgba(0,0,0,0.07)'
+        }));
+
+        // kotak utama
+        var box = mkEl('rect', {
+            x: n._x, y: n._y, width: NW, height: nh,
+            rx: RX, fill: fillC, stroke: strokeC, 'stroke-width': '1.5',
+            style: 'cursor:pointer'
+        });
+        (function(id){ box.addEventListener('click', function(){ location.href='?action=view_person&id='+id; }); })(pid);
+        svg.appendChild(box);
+
+        // almarhum
+        if (!n.is_alive) {
+            svg.appendChild(mkEl('line', {
+                x1: n._x + NW - 18, y1: n._y + 4, x2: n._x + NW - 4, y2: n._y + 18,
+                stroke: '#94a3b8', 'stroke-width': '1.5'
+            }));
+        }
+
+        // nama utama
+        var nameT = mkEl('text', {
+            x: n._x + NW / 2, y: n._y + NPH / 2,
             'text-anchor': 'middle', 'dominant-baseline': 'middle',
-            'font-size': '11px', 'font-weight': '500', fill: '#6366f1',
-            'font-family': 'system-ui,-apple-system,sans-serif', style: 'cursor:pointer' });
-        spT.textContent = '♥ ' + trunc(sp.name, 22);
-        spT.addEventListener('click', (e) => { e.stopPropagation(); location.href = '?action=view_person&id=' + sp.id; });
-        svg.appendChild(spT);
+            'font-size': '12px', 'font-weight': '700', fill: textC,
+            'font-family': 'system-ui,-apple-system,sans-serif'
+        });
+        nameT.textContent = trunc(n.name, 24);
+        svg.appendChild(nameT);
 
-        // Area klik pasangan
-        const spBox = el('rect', { x: n._x, y: spY, width: C.nodeW, height: C.spouseH,
-            fill: 'transparent', style: 'cursor:pointer' });
-        spBox.addEventListener('click', (e) => { e.stopPropagation(); location.href = '?action=view_person&id=' + sp.id; });
-        svg.appendChild(spBox);
+        // dot gender
+        var dotC = n.gender === 'male' ? '#3b82f6' : (n.gender === 'female' ? '#ec4899' : '#94a3b8');
+        svg.appendChild(mkEl('circle', { cx: n._x + NW - 10, cy: n._y + NPH / 2, r: '4', fill: dotC }));
 
-        const spDot = n.gender !== 'male' ? '#3b82f6' : '#ec4899';
-        svg.appendChild(el('circle', { cx: n._x + C.nodeW - 10, cy: spY + C.spouseH/2, r: 3.5, fill: spDot }));
+        // pasangan
+        for (var i = 0; i < (n.spouses ? n.spouses.length : 0); i++) {
+            var sp   = n.spouses[i];
+            var spY  = n._y + NPH + i * NSH;
+            var spid = sp.id;
+
+            svg.appendChild(mkEl('line', {
+                x1: n._x + 10, y1: spY, x2: n._x + NW - 10, y2: spY,
+                stroke: strokeC, 'stroke-width': '1'
+            }));
+
+            var spT = mkEl('text', {
+                x: n._x + NW / 2, y: spY + NSH / 2,
+                'text-anchor': 'middle', 'dominant-baseline': 'middle',
+                'font-size': '11px', 'font-weight': '500', fill: '#6366f1',
+                'font-family': 'system-ui,-apple-system,sans-serif'
+            });
+            spT.textContent = '♥ ' + trunc(sp.name, 22);
+            svg.appendChild(spT);
+
+            var spBox = mkEl('rect', {
+                x: n._x, y: spY, width: NW, height: NSH,
+                fill: 'transparent', style: 'cursor:pointer'
+            });
+            (function(id){ spBox.addEventListener('click', function(e){ e.stopPropagation(); location.href='?action=view_person&id='+id; }); })(spid);
+            svg.appendChild(spBox);
+
+            var sdotC = sp.gender === 'male' ? '#3b82f6' : (sp.gender === 'female' ? '#ec4899' : '#94a3b8');
+            svg.appendChild(mkEl('circle', { cx: n._x + NW - 10, cy: spY + NSH / 2, r: '3.5', fill: sdotC }));
+        }
+
+        // rekursif anak
+        if (n.children) {
+            for (var ci = 0; ci < n.children.length; ci++) drawNode(svg, n.children[ci]);
+        }
     }
 
-    // Anak
-    if (n.children) for (const c of n.children) drawNode(svg, c);
-}
-
-// ─── Legenda ─────────────────────────────────────────────────────────────────
-function buildLegend(roots) {
-    let maxGen = 0;
-    function walk(n) { if (n.gen > maxGen) maxGen = n.gen; if (n.children) n.children.forEach(walk); }
-    roots.forEach(walk);
-    const leg = document.getElementById('ll-legend');
-    if (maxGen === 0) { leg.style.display = 'none'; return; }
-    let html = '<div style="font-weight:600;margin-bottom:6px;color:#334155;">Generasi</div>';
-    for (let g = 1; g <= Math.min(maxGen, 10); g++) {
-        const gi = (g-1) % GEN_FILL.length;
-        html += `<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">
-            <div style="width:14px;height:14px;border-radius:3px;background:${GEN_FILL[gi]};border:1.5px solid ${GEN_STROKE[gi]};flex-shrink:0;"></div>
-            <span>Generasi ${g}</span></div>`;
-    }
-    leg.innerHTML = html;
-}
-
-// ─── Render ───────────────────────────────────────────────────────────────────
-function render() {
-    const canvas = document.getElementById('ll-canvas');
-    canvas.innerHTML = '';
-
-    if (!ROOTS || !ROOTS.length) {
-        canvas.innerHTML = '<p style="color:#94a3b8;padding:60px 40px;font-size:1rem;">Belum ada data untuk ditampilkan.</p>';
-        return;
+    /* ── legenda ── */
+    function buildLegend() {
+        var maxGen = 0;
+        var stack = ROOTS.slice();
+        while (stack.length) {
+            var nd = stack.pop();
+            if (nd.gen > maxGen) maxGen = nd.gen;
+            if (nd.children) for (var i = 0; i < nd.children.length; i++) stack.push(nd.children[i]);
+        }
+        var leg = document.getElementById('ll-legend');
+        if (!leg || maxGen === 0) return;
+        var html = '<div style="font-weight:600;margin-bottom:5px;color:#334155;">Generasi</div>';
+        for (var g = 1; g <= Math.min(maxGen, 10); g++) {
+            var gi = (g - 1) % FILLS.length;
+            html += '<div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;">'
+                  + '<div style="width:13px;height:13px;border-radius:3px;background:' + FILLS[gi] + ';border:1.5px solid ' + STROKES[gi] + ';flex-shrink:0;"></div>'
+                  + '<span>Gen ' + g + '</span></div>';
+        }
+        leg.innerHTML = html;
     }
 
-    // Hitung posisi semua node
-    let y = C.padY;
-    for (const root of ROOTS) { layout(root, C.padX, y); y += subtreeH(root) + C.vGap; }
-    y += C.padY;
+    /* ── render utama ── */
+    function render() {
+        var host = document.getElementById('ll-svg-host');
+        if (!host) { alert('ll-svg-host tidak ditemukan'); return; }
+        host.innerHTML = '';
 
-    // Cari ukuran canvas
-    let maxX = 0;
-    function maxXOf(n) { maxX = Math.max(maxX, n._x + C.nodeW + C.padX); if (n.children) n.children.forEach(maxXOf); }
-    ROOTS.forEach(maxXOf);
+        if (!ROOTS || ROOTS.length === 0) {
+            host.innerHTML = '<p style="color:#94a3b8;padding:60px 40px;font-size:1rem;">Belum ada data pohon keluarga.</p>';
+            return;
+        }
 
-    const svg = el('svg', { width: maxX, height: y, xmlns: NS });
+        // hitung posisi
+        var totalY = PY;
+        for (var i = 0; i < ROOTS.length; i++) {
+            layout(ROOTS[i], PX, totalY);
+            totalY += subtreeH(ROOTS[i]) + VG;
+        }
+        totalY += PY;
 
-    // Gambar garis dulu (di bawah kotak)
-    ROOTS.forEach(r => drawLines(svg, r));
-    // Gambar kotak di atas
-    ROOTS.forEach(r => drawNode(svg, r));
+        // hitung lebar max
+        var maxX = 0;
+        var stack2 = ROOTS.slice();
+        while (stack2.length) {
+            var nd2 = stack2.pop();
+            var rx2 = nd2._x + NW + PX;
+            if (rx2 > maxX) maxX = rx2;
+            if (nd2.children) for (var j = 0; j < nd2.children.length; j++) stack2.push(nd2.children[j]);
+        }
 
-    canvas.appendChild(svg);
-    buildLegend(ROOTS);
-}
+        // buat SVG
+        var svg = mkEl('svg', { width: maxX, height: totalY });
 
-// ─── Pan & Zoom ───────────────────────────────────────────────────────────────
-let _scale = 1, _tx = 0, _ty = 0;
-let _drag = false, _sx = 0, _sy = 0;
+        // garis dulu, lalu kotak
+        for (var ri = 0; ri < ROOTS.length; ri++) drawLines(svg, ROOTS[ri]);
+        for (var rj = 0; rj < ROOTS.length; rj++) drawNode(svg,  ROOTS[rj]);
 
-const outer   = document.getElementById('ll-outer');
-const wrapper = document.getElementById('ll-wrapper');
-
-function applyT() {
-    wrapper.style.transform = `translate(${_tx}px,${_ty}px) scale(${_scale})`;
-}
-window.llZoom = function(f) { _scale = Math.min(4, Math.max(0.15, _scale * f)); applyT(); };
-window.llReset = function() { _scale = 1; _tx = 0; _ty = 0; applyT(); };
-
-outer.addEventListener('mousedown', e => { _drag=true; _sx=e.clientX-_tx; _sy=e.clientY-_ty; outer.style.cursor='grabbing'; });
-window.addEventListener('mouseup',  () => { _drag=false; outer.style.cursor='grab'; });
-window.addEventListener('mousemove', e => { if (!_drag) return; _tx=e.clientX-_sx; _ty=e.clientY-_sy; applyT(); });
-outer.addEventListener('wheel', e => { e.preventDefault(); llZoom(e.deltaY < 0 ? 1.1 : 0.9); }, { passive: false });
-
-// Touch support
-let _lDist = 0;
-outer.addEventListener('touchstart', e => {
-    if (e.touches.length === 1) { _drag=true; _sx=e.touches[0].clientX-_tx; _sy=e.touches[0].clientY-_ty; }
-    if (e.touches.length === 2) { _lDist = Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY); }
-}, { passive: true });
-outer.addEventListener('touchmove', e => {
-    e.preventDefault();
-    if (e.touches.length === 1 && _drag) { _tx=e.touches[0].clientX-_sx; _ty=e.touches[0].clientY-_sy; applyT(); }
-    if (e.touches.length === 2) {
-        const d = Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY);
-        llZoom(d / _lDist); _lDist = d;
+        host.appendChild(svg);
+        buildLegend();
     }
-}, { passive: false });
-outer.addEventListener('touchend', () => { _drag = false; });
 
-// ─── Init ─────────────────────────────────────────────────────────────────────
-render();
+    /* ── pan & zoom ── */
+    var _scale = 1, _tx = 0, _ty = 0, _drag = false, _sx = 0, _sy = 0, _lDist = 0;
 
+    function applyT() {
+        var w = document.getElementById('ll-wrapper');
+        if (w) w.style.transform = 'translate(' + _tx + 'px,' + _ty + 'px) scale(' + _scale + ')';
+    }
+
+    window.llZoom = function(f) { _scale = Math.min(4, Math.max(0.1, _scale * f)); applyT(); };
+    window.llReset = function() { _scale = 1; _tx = 0; _ty = 0; applyT(); };
+
+    function initPanZoom() {
+        var outer = document.getElementById('ll-outer');
+        if (!outer) return;
+
+        outer.addEventListener('mousedown', function(e) {
+            _drag = true; _sx = e.clientX - _tx; _sy = e.clientY - _ty;
+            outer.style.cursor = 'grabbing';
+        });
+        window.addEventListener('mouseup', function() { _drag = false; outer.style.cursor = 'grab'; });
+        window.addEventListener('mousemove', function(e) {
+            if (!_drag) return;
+            _tx = e.clientX - _sx; _ty = e.clientY - _sy; applyT();
+        });
+        outer.addEventListener('wheel', function(e) {
+            e.preventDefault();
+            llZoom(e.deltaY < 0 ? 1.1 : 0.9);
+        }, { passive: false });
+
+        outer.addEventListener('touchstart', function(e) {
+            if (e.touches.length === 1) { _drag=true; _sx=e.touches[0].clientX-_tx; _sy=e.touches[0].clientY-_ty; }
+            if (e.touches.length === 2) { _lDist = Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY); }
+        }, { passive: true });
+        outer.addEventListener('touchmove', function(e) {
+            e.preventDefault();
+            if (e.touches.length === 1 && _drag) { _tx=e.touches[0].clientX-_sx; _ty=e.touches[0].clientY-_sy; applyT(); }
+            if (e.touches.length === 2) {
+                var d = Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY);
+                llZoom(d / _lDist); _lDist = d;
+            }
+        }, { passive: false });
+        outer.addEventListener('touchend', function() { _drag = false; });
+    }
+
+    /* ── init ── */
+    return {
+        init: function() {
+            try {
+                render();
+                initPanZoom();
+            } catch(e) {
+                var host = document.getElementById('ll-svg-host');
+                if (host) host.innerHTML = '<div style="padding:24px;color:#dc2626;background:#fef2f2;margin:24px;border-radius:8px;"><strong>Error rendering:</strong><br>' + e.message + '</div>';
+                console.error('Level Line error:', e);
+            }
+        }
+    };
 })();
+
+document.addEventListener('DOMContentLoaded', function() { LL.init(); });
 </script>
 
 <?php endif; ?>
