@@ -2156,6 +2156,7 @@ if ($action === 'bio') {
             <a href="?action=home" class="d-link <?= ($action === 'home') ? 'active' : '' ?>">🏠 Home</a>
             <a href="?action=add_person" class="d-link <?= ($action === 'add_person') ? 'active' : '' ?>">➕ Tambah Baru</a>
             <a href="?action=tree" class="d-link <?= ($action === 'tree') ? 'active' : '' ?>">🌳 Pohon Keluarga</a>
+            <a href="?action=level_line" class="d-link <?= ($action === 'level_line') ? 'active' : '' ?>">📊 Level Line</a>
             
             <?php if ($isAdmin): ?>
                 <a href="?action=admin_users" class="d-link <?= ($action === 'admin_users') ? 'active' : '' ?>">👤 Admin</a>
@@ -3563,6 +3564,355 @@ if ($action === 'bio') {
     
     
     
+<?php elseif ($action === 'level_line'): ?>
+<?php
+$activeTreeId = $_SESSION['current_tree_id'] ?? 0;
+if ($isAdmin && $isViewingOthers && isset($_SESSION['admin_viewing_tree_id'])) {
+    $activeTreeId = intval($_SESSION['admin_viewing_tree_id']);
+}
+
+if ($activeTreeId == 0): ?>
+    <div class="card" style="text-align:center;padding:40px;">
+        <p style="color:#64748b;margin-bottom:16px;">Belum ada pohon keluarga yang dipilih.</p>
+        <a href="?action=home" class="btn btn-primary">Pilih Pohon Keluarga</a>
+    </div>
+<?php else:
+    list($personsByGen, $maxGen, $maxHeight, $generationData, $allPersonsData, $parentChildren, $spouses, $childParents)
+        = fh_compute_generations($mysqli, $activeTreeId);
+
+    // Cari root: punya anak tapi tidak punya orang tua
+    $rootIds = [];
+    foreach ($allPersonsData as $pid => $_) {
+        $isParent = !empty($parentChildren[$pid]);
+        $isChild  = !empty($childParents[$pid]);
+        if ($isParent && !$isChild) $rootIds[] = $pid;
+    }
+    if (empty($rootIds)) {
+        foreach ($allPersonsData as $pid => $_) {
+            if (empty($childParents[$pid])) $rootIds[] = $pid;
+        }
+    }
+    sort($rootIds);
+
+    function fh_build_ll_node($pid, $persons, $parentChildren, $spouses, &$visited, $gen) {
+        if (isset($visited[$pid])) return null;
+        $visited[$pid] = true;
+        $p = $persons[$pid];
+
+        $node = [
+            'id'       => $pid,
+            'name'     => $p['name'],
+            'gender'   => $p['gender'],
+            'is_alive' => (int)($p['is_alive'] ?? 1),
+            'gen'      => $gen,
+            'spouses'  => [],
+            'children' => [],
+        ];
+
+        // Pasangan (diurutkan berdasarkan spouse_order)
+        if (!empty($spouses[$pid])) {
+            $sl = $spouses[$pid];
+            uksort($sl, function($a, $b) use ($sl) {
+                return ($sl[$a]['order'] ?? 0) - ($sl[$b]['order'] ?? 0);
+            });
+            foreach ($sl as $sid => $_) {
+                if (!isset($visited[$sid]) && isset($persons[$sid])) {
+                    $visited[$sid] = true;
+                    $sp = $persons[$sid];
+                    $node['spouses'][] = [
+                        'id'       => $sid,
+                        'name'     => $sp['name'],
+                        'gender'   => $sp['gender'],
+                        'is_alive' => (int)($sp['is_alive'] ?? 1),
+                    ];
+                }
+            }
+        }
+
+        // Anak diurutkan berdasarkan child_order (tertua di atas)
+        if (!empty($parentChildren[$pid])) {
+            $cids = array_keys($parentChildren[$pid]);
+            usort($cids, function($a, $b) use ($persons) {
+                $oa = $persons[$a]['child_order'] ?? 9999;
+                $ob = $persons[$b]['child_order'] ?? 9999;
+                return $oa !== $ob ? $oa - $ob : $a - $b;
+            });
+            foreach ($cids as $cid) {
+                $cn = fh_build_ll_node($cid, $persons, $parentChildren, $spouses, $visited, $gen + 1);
+                if ($cn) $node['children'][] = $cn;
+            }
+        }
+        return $node;
+    }
+
+    $visited = [];
+    $treeRoots = [];
+    foreach ($rootIds as $rid) {
+        $n = fh_build_ll_node($rid, $allPersonsData, $parentChildren, $spouses, $visited, 1);
+        if ($n) $treeRoots[] = $n;
+    }
+    $treeJson = json_encode($treeRoots, JSON_UNESCAPED_UNICODE);
+?>
+
+<div style="position:relative; overflow:hidden; background:#f1f5f9; border-radius:12px; height:88vh; border:1px solid #e2e8f0; user-select:none;">
+
+    <!-- Toolbar -->
+    <div style="position:absolute;top:12px;left:12px;z-index:20;display:flex;gap:6px;align-items:center;background:rgba(255,255,255,0.97);padding:8px 14px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.12);">
+        <span style="font-weight:700;color:#1e293b;font-size:0.9rem;">📊 Level Line</span>
+        <span style="color:#cbd5e1;margin:0 2px;">|</span>
+        <button onclick="llZoom(1.2)" title="Zoom In"  style="border:none;background:#f1f5f9;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:1rem;font-weight:700;color:#334155;">+</button>
+        <button onclick="llZoom(0.8)" title="Zoom Out" style="border:none;background:#f1f5f9;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:1rem;font-weight:700;color:#334155;">−</button>
+        <button onclick="llReset()"  title="Reset"     style="border:none;background:#f1f5f9;border-radius:6px;padding:4px 9px;cursor:pointer;font-size:0.85rem;color:#334155;">⊡ Reset</button>
+    </div>
+
+    <!-- Legenda generasi -->
+    <div id="ll-legend" style="position:absolute;top:12px;right:12px;z-index:20;background:rgba(255,255,255,0.97);padding:8px 12px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.12);font-size:0.78rem;color:#475569;max-width:160px;"></div>
+
+    <!-- Canvas pan/zoom wrapper -->
+    <div id="ll-outer" style="width:100%;height:100%;overflow:hidden;cursor:grab;touch-action:none;">
+        <div id="ll-wrapper" style="display:inline-block;transform-origin:0 0;">
+            <div id="ll-canvas"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+"use strict";
+
+// ─── Data ───────────────────────────────────────────────────────────────────
+const ROOTS = <?= $treeJson ?>;
+
+// ─── Config ─────────────────────────────────────────────────────────────────
+const C = {
+    nodeW:    200,   // lebar kotak orang
+    personH:  52,    // tinggi baris orang
+    spouseH:  36,    // tinggi baris pasangan
+    hGap:     80,    // jarak horizontal antar generasi
+    vGap:     14,    // jarak vertikal antar saudara
+    padX:     30,
+    padY:     30,
+    rx:       9,     // border-radius kotak
+    lineW:    2,
+    lineC:    '#94a3b8',
+};
+
+const GEN_FILL   = ['#dbeafe','#dcfce7','#fef3c7','#fce7f3','#ede9fe','#ffedd5','#ecfeff','#f0fdf4','#fef9c3','#fae8ff'];
+const GEN_STROKE = ['#93c5fd','#86efac','#fde68a','#f9a8d4','#c4b5fd','#fdba74','#67e8f9','#6ee7b7','#fef08a','#e879f9'];
+const GEN_TEXT   = ['#1e40af','#166534','#92400e','#9d174d','#5b21b6','#9a3412','#164e63','#14532d','#854d0e','#86198f'];
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+const NS = 'http://www.w3.org/2000/svg';
+function el(tag, attrs) {
+    const e = document.createElementNS(NS, tag);
+    for (const [k,v] of Object.entries(attrs)) e.setAttribute(k, v);
+    return e;
+}
+function trunc(s, n=24) { return s && s.length > n ? s.slice(0, n-1) + '…' : (s || ''); }
+function nodeH(n) { return C.personH + n.spouses.length * C.spouseH; }
+
+function subtreeH(n) {
+    const myH = nodeH(n) + C.vGap;
+    if (!n.children || !n.children.length) return myH;
+    let ch = 0; for (const c of n.children) ch += subtreeH(c);
+    return Math.max(myH, ch);
+}
+
+// ─── Layout ──────────────────────────────────────────────────────────────────
+function layout(n, x, startY) {
+    const sh = subtreeH(n), nh = nodeH(n);
+    n._x    = x;
+    n._y    = startY + sh / 2 - nh / 2;
+    n._midY = n._y + nh / 2;   // pusat kotak (untuk konektor)
+    let cy = startY;
+    if (n.children) for (const c of n.children) { layout(c, x + C.nodeW + C.hGap, cy); cy += subtreeH(c); }
+}
+
+// ─── Draw ────────────────────────────────────────────────────────────────────
+function drawLines(svg, n) {
+    if (!n.children || !n.children.length) return;
+
+    const stemX = n._x + C.nodeW + C.hGap / 2;
+    const parentY = n._midY;
+
+    // Garis horizontal dari kotak orang tua ke tiang vertikal
+    svg.appendChild(el('line', { x1: n._x + C.nodeW, y1: parentY, x2: stemX, y2: parentY,
+        stroke: C.lineC, 'stroke-width': C.lineW, 'stroke-linecap': 'round' }));
+
+    // Tiang vertikal (jika anak > 1)
+    if (n.children.length > 1) {
+        const topY    = n.children[0]._midY;
+        const bottomY = n.children[n.children.length - 1]._midY;
+        svg.appendChild(el('line', { x1: stemX, y1: topY, x2: stemX, y2: bottomY,
+            stroke: C.lineC, 'stroke-width': C.lineW, 'stroke-linecap': 'round' }));
+    }
+
+    // Cabang horizontal ke setiap anak
+    for (const c of n.children) {
+        svg.appendChild(el('line', { x1: stemX, y1: c._midY, x2: c._x, y2: c._midY,
+            stroke: C.lineC, 'stroke-width': C.lineW, 'stroke-linecap': 'round' }));
+        drawLines(svg, c);
+    }
+}
+
+function drawNode(svg, n) {
+    const nh = nodeH(n);
+    const gi = (n.gen - 1) % GEN_FILL.length;
+    const fillC   = GEN_FILL[gi];
+    const strokeC = GEN_STROKE[gi];
+    const textC   = GEN_TEXT[gi];
+
+    // Bayangan tipis
+    svg.appendChild(el('rect', { x: n._x+2, y: n._y+3, width: C.nodeW, height: nh,
+        rx: C.rx, fill: 'rgba(0,0,0,0.07)' }));
+
+    // Kotak utama
+    const box = el('rect', { x: n._x, y: n._y, width: C.nodeW, height: nh,
+        rx: C.rx, fill: fillC, stroke: strokeC, 'stroke-width': 1.5, style: 'cursor:pointer' });
+    box.addEventListener('click', () => location.href = '?action=view_person&id=' + n.id);
+    svg.appendChild(box);
+
+    // Indikator almarhum (garis diagonal di pojok)
+    if (!n.is_alive) {
+        svg.appendChild(el('line', { x1: n._x+C.nodeW-18, y1: n._y+4, x2: n._x+C.nodeW-4, y2: n._y+18,
+            stroke: '#94a3b8', 'stroke-width': 1.5 }));
+    }
+
+    // Nama orang utama
+    const boldT = el('text', { x: n._x + C.nodeW/2, y: n._y + C.personH/2,
+        'text-anchor': 'middle', 'dominant-baseline': 'middle',
+        'font-size': '12.5px', 'font-weight': '700', fill: textC,
+        'font-family': 'system-ui,-apple-system,sans-serif', style: 'cursor:pointer' });
+    boldT.textContent = trunc(n.name);
+    boldT.addEventListener('click', () => location.href = '?action=view_person&id=' + n.id);
+    svg.appendChild(boldT);
+
+    // Dot gender
+    const dotC = n.gender === 'male' ? '#3b82f6' : n.gender === 'female' ? '#ec4899' : '#94a3b8';
+    svg.appendChild(el('circle', { cx: n._x + C.nodeW - 10, cy: n._y + C.personH/2, r: 4, fill: dotC }));
+
+    // Pasangan
+    for (let i = 0; i < n.spouses.length; i++) {
+        const sp  = n.spouses[i];
+        const spY = n._y + C.personH + i * C.spouseH;
+
+        // Garis pemisah
+        svg.appendChild(el('line', { x1: n._x+10, y1: spY, x2: n._x+C.nodeW-10, y2: spY,
+            stroke: strokeC, 'stroke-width': 1 }));
+
+        // Nama pasangan
+        const spT = el('text', { x: n._x + C.nodeW/2, y: spY + C.spouseH/2,
+            'text-anchor': 'middle', 'dominant-baseline': 'middle',
+            'font-size': '11px', 'font-weight': '500', fill: '#6366f1',
+            'font-family': 'system-ui,-apple-system,sans-serif', style: 'cursor:pointer' });
+        spT.textContent = '♥ ' + trunc(sp.name, 22);
+        spT.addEventListener('click', (e) => { e.stopPropagation(); location.href = '?action=view_person&id=' + sp.id; });
+        svg.appendChild(spT);
+
+        // Area klik pasangan
+        const spBox = el('rect', { x: n._x, y: spY, width: C.nodeW, height: C.spouseH,
+            fill: 'transparent', style: 'cursor:pointer' });
+        spBox.addEventListener('click', (e) => { e.stopPropagation(); location.href = '?action=view_person&id=' + sp.id; });
+        svg.appendChild(spBox);
+
+        const spDot = n.gender !== 'male' ? '#3b82f6' : '#ec4899';
+        svg.appendChild(el('circle', { cx: n._x + C.nodeW - 10, cy: spY + C.spouseH/2, r: 3.5, fill: spDot }));
+    }
+
+    // Anak
+    if (n.children) for (const c of n.children) drawNode(svg, c);
+}
+
+// ─── Legenda ─────────────────────────────────────────────────────────────────
+function buildLegend(roots) {
+    let maxGen = 0;
+    function walk(n) { if (n.gen > maxGen) maxGen = n.gen; if (n.children) n.children.forEach(walk); }
+    roots.forEach(walk);
+    const leg = document.getElementById('ll-legend');
+    if (maxGen === 0) { leg.style.display = 'none'; return; }
+    let html = '<div style="font-weight:600;margin-bottom:6px;color:#334155;">Generasi</div>';
+    for (let g = 1; g <= Math.min(maxGen, 10); g++) {
+        const gi = (g-1) % GEN_FILL.length;
+        html += `<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">
+            <div style="width:14px;height:14px;border-radius:3px;background:${GEN_FILL[gi]};border:1.5px solid ${GEN_STROKE[gi]};flex-shrink:0;"></div>
+            <span>Generasi ${g}</span></div>`;
+    }
+    leg.innerHTML = html;
+}
+
+// ─── Render ───────────────────────────────────────────────────────────────────
+function render() {
+    const canvas = document.getElementById('ll-canvas');
+    canvas.innerHTML = '';
+
+    if (!ROOTS || !ROOTS.length) {
+        canvas.innerHTML = '<p style="color:#94a3b8;padding:60px 40px;font-size:1rem;">Belum ada data untuk ditampilkan.</p>';
+        return;
+    }
+
+    // Hitung posisi semua node
+    let y = C.padY;
+    for (const root of ROOTS) { layout(root, C.padX, y); y += subtreeH(root) + C.vGap; }
+    y += C.padY;
+
+    // Cari ukuran canvas
+    let maxX = 0;
+    function maxXOf(n) { maxX = Math.max(maxX, n._x + C.nodeW + C.padX); if (n.children) n.children.forEach(maxXOf); }
+    ROOTS.forEach(maxXOf);
+
+    const svg = el('svg', { width: maxX, height: y, xmlns: NS });
+
+    // Gambar garis dulu (di bawah kotak)
+    ROOTS.forEach(r => drawLines(svg, r));
+    // Gambar kotak di atas
+    ROOTS.forEach(r => drawNode(svg, r));
+
+    canvas.appendChild(svg);
+    buildLegend(ROOTS);
+}
+
+// ─── Pan & Zoom ───────────────────────────────────────────────────────────────
+let _scale = 1, _tx = 0, _ty = 0;
+let _drag = false, _sx = 0, _sy = 0;
+
+const outer   = document.getElementById('ll-outer');
+const wrapper = document.getElementById('ll-wrapper');
+
+function applyT() {
+    wrapper.style.transform = `translate(${_tx}px,${_ty}px) scale(${_scale})`;
+}
+window.llZoom = function(f) { _scale = Math.min(4, Math.max(0.15, _scale * f)); applyT(); };
+window.llReset = function() { _scale = 1; _tx = 0; _ty = 0; applyT(); };
+
+outer.addEventListener('mousedown', e => { _drag=true; _sx=e.clientX-_tx; _sy=e.clientY-_ty; outer.style.cursor='grabbing'; });
+window.addEventListener('mouseup',  () => { _drag=false; outer.style.cursor='grab'; });
+window.addEventListener('mousemove', e => { if (!_drag) return; _tx=e.clientX-_sx; _ty=e.clientY-_sy; applyT(); });
+outer.addEventListener('wheel', e => { e.preventDefault(); llZoom(e.deltaY < 0 ? 1.1 : 0.9); }, { passive: false });
+
+// Touch support
+let _lDist = 0;
+outer.addEventListener('touchstart', e => {
+    if (e.touches.length === 1) { _drag=true; _sx=e.touches[0].clientX-_tx; _sy=e.touches[0].clientY-_ty; }
+    if (e.touches.length === 2) { _lDist = Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY); }
+}, { passive: true });
+outer.addEventListener('touchmove', e => {
+    e.preventDefault();
+    if (e.touches.length === 1 && _drag) { _tx=e.touches[0].clientX-_sx; _ty=e.touches[0].clientY-_sy; applyT(); }
+    if (e.touches.length === 2) {
+        const d = Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY);
+        llZoom(d / _lDist); _lDist = d;
+    }
+}, { passive: false });
+outer.addEventListener('touchend', () => { _drag = false; });
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+render();
+
+})();
+</script>
+
+<?php endif; ?>
+
 <?php elseif ($action === 'notifications'): ?>
     <div class="card" style="border:none; background:transparent; box-shadow:none; padding:0;">
         <h2 style="margin-bottom:15px;">🔔 Notifikasi Anda</h2>
