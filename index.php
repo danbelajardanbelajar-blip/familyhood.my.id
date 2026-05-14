@@ -4111,8 +4111,9 @@ elseif ($action === 'privacy'): ?>
                         // Insert semua orang dalam sel ini
                         $ids = [];
                         foreach ($nameParts as $name) {
+                            $isNew = !isset($personMap[$name]);
                             $ids[] = insertOrGetPerson($mysqli, $name, $targetUserId, $treeId, $personMap);
-                            $imported++;
+                            if ($isNew) $imported++; // hitung hanya orang baru (unik)
                         }
 
                         if (!isset($colData[$colIndex])) $colData[$colIndex] = [];
