@@ -4078,14 +4078,14 @@ elseif ($action === 'privacy'): ?>
                     return $id;
                 }
                 
-                function addRelation($mysqli, $person1Id, $person2Id, $type) {
+                function addRelation($mysqli, $person1Id, $person2Id, $type, $userId) {
                     // Check if exists
-                    $stmt = $mysqli->prepare("SELECT id FROM relations WHERE (person1_id = ? AND person2_id = ?) OR (person1_id = ? AND person2_id = ?)");
-                    $stmt->bind_param('iiii', $person1Id, $person2Id, $person2Id, $person1Id);
+                    $stmt = $mysqli->prepare("SELECT id FROM relations WHERE ((person_id = ? AND related_person_id = ?) OR (person_id = ? AND related_person_id = ?)) AND user_id = ?");
+                    $stmt->bind_param('iiiii', $person1Id, $person2Id, $person2Id, $person1Id, $userId);
                     $stmt->execute();
                     if ($stmt->get_result()->num_rows == 0) {
-                        $stmt = $mysqli->prepare("INSERT INTO relations (person1_id, person2_id, relation_type) VALUES (?, ?, ?)");
-                        $stmt->bind_param('iis', $person1Id, $person2Id, $type);
+                        $stmt = $mysqli->prepare("INSERT INTO relations (user_id, person_id, related_person_id, relation_type) VALUES (?, ?, ?, ?)");
+                        $stmt->bind_param('iiis', $userId, $person1Id, $person2Id, $type);
                         $stmt->execute();
                     }
                 }
@@ -4140,12 +4140,12 @@ elseif ($action === 'privacy'): ?>
                             if ($name2) {
                                 $person2Id = insertOrGetPerson($mysqli, $name2, $targetUserId, $treeId, $personMap);
                                 // Add spouse relation
-                                addRelation($mysqli, $person1Id, $person2Id, 'pasangan');
+                                addRelation($mysqli, $person1Id, $person2Id, 'pasangan', $targetUserId);
                             }
                             
                             // If parent, add child relation
                             if ($parentName && isset($personMap[$parentName])) {
-                                addRelation($mysqli, $personMap[$parentName], $person1Id, 'anak');
+                                addRelation($mysqli, $personMap[$parentName], $person1Id, 'anak', $targetUserId);
                             }
                             
                         } else {
