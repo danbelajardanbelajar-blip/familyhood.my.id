@@ -4883,9 +4883,21 @@ document.addEventListener('DOMContentLoaded', () => {
             if (newContent) {
                 mainContent.innerHTML = newContent.innerHTML;
                 document.title = newTitle;
-                
+
+                // Script tags injected via innerHTML tidak dieksekusi browser secara otomatis.
+                // Buat ulang setiap <script> agar benar-benar dijalankan.
+                newContent.querySelectorAll('script').forEach(function(oldScript) {
+                    var s = document.createElement('script');
+                    Array.from(oldScript.attributes).forEach(function(attr) {
+                        s.setAttribute(attr.name, attr.value);
+                    });
+                    s.textContent = oldScript.textContent;
+                    document.body.appendChild(s);
+                    document.body.removeChild(s);
+                });
+
                 mainContent.classList.remove('fade-in');
-                void mainContent.offsetWidth; 
+                void mainContent.offsetWidth;
                 mainContent.classList.add('fade-in');
 
                 if (pushState) history.pushState({ url: url }, newTitle, url);
