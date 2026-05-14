@@ -146,6 +146,34 @@ if ($action === 'get_viewable_trees' && $isAdmin) {
     exit;
 }
 
+// --- 8. AJAX GET USER TREES (For Import) ---
+if ($action === 'get_user_trees' && $isAdmin) {
+    while (ob_get_level()) { ob_end_clean(); }
+    header('Content-Type: application/json');
+    ini_set('display_errors', 0);
+
+    $userId = intval($_GET['user_id'] ?? 0);
+    $rows = [];
+
+    if ($userId > 0) {
+        $stmt = $mysqli->prepare("SELECT id, name FROM family_trees WHERE user_id = ? ORDER BY name ASC");
+        $stmt->bind_param('i', $userId);
+        $stmt->execute();
+        $res = $stmt->get_result();
+
+        if ($res) {
+            while ($r = $res->fetch_assoc()) {
+                $rows[] = $r;
+            }
+        }
+
+        $stmt->close();
+    }
+
+    echo json_encode($rows);
+    exit;
+}
+
 
 // --- LOGIKA AKTIVASI AKUN (Saat diklik dari email) ---
 if ($action === 'activate') {
@@ -3850,6 +3878,10 @@ elseif ($action === 'privacy'): ?>
     <div class="card">
         <h2>🛠️ Dashboard Admin</h2>
         
+        <div style="margin-bottom:20px;">
+            <a href="?action=import_excel" class="btn btn-primary">📊 Import Data dari Excel</a>
+        </div>
+        
         <h3 class="section-title">Daftar Pengguna</h3>
         <div style="overflow-x:auto;">
             <table style="min-width: 700px;">
@@ -3986,6 +4018,223 @@ elseif ($action === 'privacy'): ?>
         <?php else: ?>
             <p style="color:#6b7280;">Tidak ada tiket bantuan.</p>
         <?php endif; ?>
+    </div>
+
+<?php elseif ($action === 'import_excel' && $isAdmin): ?>
+    <div class="card">
+        <h2>📊 Import Data dari Excel</h2>
+        
+        <p style="font-size:0.9rem; color:#6b7280; margin-bottom:20px;">
+            Unggah file Excel untuk mengimpor data keluarga. Pastikan format sesuai: kolom pertama generasi 1, kolom kedua generasi 2, dst. Data dengan tanda "+" menandai suami/istri.
+        </p>
+        
+        <?php
+        if (isset($_POST['upload_excel'])) {
+            $targetUserId = intval($_POST['target_user_id']);
+            $treeId = intval($_POST['tree_id']);
+            if ($targetUserId == 0) {
+                echo "<div class='alert alert-error'>Pilih user tujuan import.</div>";
+            } elseif ($treeId == 0) {
+                echo "<div class='alert alert-error'>Pilih pohon keluarga.</div>";
+            } elseif (!isset($_FILES['excel_file']) || $_FILES['excel_file']['error'] != 0) {
+                echo "<div class='alert alert-error'>File Excel tidak valid.</div>";
+            } else {
+                $fileTmp = $_FILES['excel_file']['tmp_name'];
+                $fileName = $_FILES['excel_file']['name'];
+                
+                // Load Excel
+                $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($fileTmp);
+                $worksheet = $spreadsheet->getActiveSheet();
+                $rows = $worksheet->toArray();
+                
+                // Skip header if any, assume first row is data
+                $imported = 0;
+                $errors = [];
+                
+                // Array to hold persons by generation
+                $generations = [];
+                $personMap = []; // name => id
+                
+                foreach ($rows as $rowIndex => $row) {
+                    if ($rowIndex == 0 && empty(array_filter($row))) continue; // Skip empty first row
+                    
+                    foreach ($row as $colIndex => $cell) {
+                        if (!empty(trim($cell))) {
+                            $gen = $colIndex + 1;
+                            if (!isset($generations[$gen])) $generations[$gen] = [];
+                            $generations[$gen][] = ['row' => $rowIndex, 'data' => trim($cell)];
+                        }
+                    }
+                }
+                
+                // Process each generation
+                foreach ($generations as $gen => $persons) {
+                    foreach ($persons as $p) {
+                        $data = $p['data'];
+                        $rowIndex = $p['row'];
+                        
+                        // Check if contains +
+                        if (strpos($data, '+') !== false) {
+                            // Spouse
+                            $names = explode('+', $data);
+                            $name1 = trim($names[0]);
+                            $name2 = isset($names[1]) ? trim($names[1]) : '';
+                            
+                            // First name is child of parent in left column
+                            $parentGen = $gen - 1;
+                            $parentName = null;
+                            if ($parentGen > 0 && isset($generations[$parentGen])) {
+                                // Find parent in same row or previous
+                                foreach ($generations[$parentGen] as $pp) {
+                                    if ($pp['row'] <= $rowIndex) {
+                                        $parentData = $pp['data'];
+                                        if (strpos($parentData, '+') === false) {
+                                            $parentName = trim($parentData);
+                                            break;
+                                        } else {
+                                            $pnames = explode('+', $parentData);
+                                            $parentName = trim($pnames[0]);
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            // Insert or get person1
+                            $person1Id = insertOrGetPerson($mysqli, $name1, $targetUserId, $treeId, $personMap);
+                            if ($name2) {
+                                $person2Id = insertOrGetPerson($mysqli, $name2, $targetUserId, $treeId, $personMap);
+                                // Add spouse relation
+                                addRelation($mysqli, $person1Id, $person2Id, 'pasangan');
+                            }
+                            
+                            // If parent, add child relation
+                            if ($parentName && isset($personMap[$parentName])) {
+                                addRelation($mysqli, $personMap[$parentName], $person1Id, 'anak');
+                            }
+                            
+                        } else {
+                            // Single person
+                            $name = $data;
+                            $personId = insertOrGetPerson($mysqli, $name, $targetUserId, $treeId, $personMap);
+                            
+                            // Parent
+                            $parentGen = $gen - 1;
+                            $parentName = null;
+                            if ($parentGen > 0 && isset($generations[$parentGen])) {
+                                foreach ($generations[$parentGen] as $pp) {
+                                    if ($pp['row'] <= $rowIndex) {
+                                        $parentData = $pp['data'];
+                                        if (strpos($parentData, '+') === false) {
+                                            $parentName = trim($parentData);
+                                        } else {
+                                            $pnames = explode('+', $parentData);
+                                            $parentName = trim($pnames[0]);
+                                        }
+                                        break;
+                                    }
+                                }
+                            }
+                            
+                            if ($parentName && isset($personMap[$parentName])) {
+                                addRelation($mysqli, $personMap[$parentName], $personId, 'anak');
+                            }
+                        }
+                        $imported++;
+                    }
+                }
+                
+                echo "<div class='alert alert-success'>Import selesai. $imported data diproses.</div>";
+                if (!empty($errors)) {
+                    echo "<div class='alert alert-error'>Error: " . implode(', ', $errors) . "</div>";
+                }
+            }
+        }
+        
+        function insertOrGetPerson($mysqli, $name, $userId, $treeId, &$personMap) {
+            if (isset($personMap[$name])) return $personMap[$name];
+            
+            // Check if exists
+            $stmt = $mysqli->prepare("SELECT id FROM persons WHERE name = ? AND user_id = ? AND tree_id = ?");
+            $stmt->bind_param('sii', $name, $userId, $treeId);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            if ($result->num_rows > 0) {
+                $id = $result->fetch_assoc()['id'];
+                $personMap[$name] = $id;
+                return $id;
+            }
+            
+            // Insert new
+            $stmt = $mysqli->prepare("INSERT INTO persons (name, user_id, tree_id, gender, is_alive) VALUES (?, ?, ?, 'unknown', 1)");
+            $stmt->bind_param('sii', $name, $userId, $treeId);
+            $stmt->execute();
+            $id = $mysqli->insert_id;
+            $personMap[$name] = $id;
+            return $id;
+        }
+        
+        function addRelation($mysqli, $person1Id, $person2Id, $type) {
+            // Check if exists
+            $stmt = $mysqli->prepare("SELECT id FROM relations WHERE (person1_id = ? AND person2_id = ?) OR (person1_id = ? AND person2_id = ?)");
+            $stmt->bind_param('iiii', $person1Id, $person2Id, $person2Id, $person1Id);
+            $stmt->execute();
+            if ($stmt->get_result()->num_rows == 0) {
+                $stmt = $mysqli->prepare("INSERT INTO relations (person1_id, person2_id, relation_type) VALUES (?, ?, ?)");
+                $stmt->bind_param('iis', $person1Id, $person2Id, $type);
+                $stmt->execute();
+            }
+        }
+        ?>
+        
+        <form method="post" enctype="multipart/form-data" style="background:#f9fafb; padding:20px; border-radius:10px;">
+            <label>Pilih User Tujuan Import:</label>
+            <select name="target_user_id" id="target_user" required onchange="loadTrees()">
+                <option value="">-- Pilih User --</option>
+                <?php 
+                $users = $mysqli->query("SELECT id, name FROM users WHERE role != 'admin'");
+                while($u = $users->fetch_assoc()) {
+                    echo "<option value='".$u['id']."'>".$u['name']."</option>";
+                }
+                ?>
+            </select>
+            
+            <label>Pilih Pohon Keluarga:</label>
+            <select name="tree_id" id="tree_select" required>
+                <option value="">-- Pilih Pohon --</option>
+            </select>
+            
+            <label>Pilih File Excel:</label>
+            <input type="file" name="excel_file" accept=".xlsx,.xls" required>
+            
+            <button type="submit" name="upload_excel" class="btn btn-primary" style="margin-top:10px;">Import Data</button>
+        </form>
+        
+        <script>
+        function loadTrees() {
+            const userId = document.getElementById('target_user').value;
+            const treeSelect = document.getElementById('tree_select');
+            treeSelect.innerHTML = '<option value="">Loading...</option>';
+            
+            if (!userId) return;
+            
+            fetch('?action=get_user_trees&user_id=' + userId)
+                .then(response => response.json())
+                .then(data => {
+                    treeSelect.innerHTML = '<option value="">-- Pilih Pohon --</option>';
+                    data.forEach(tree => {
+                        const option = document.createElement('option');
+                        option.value = tree.id;
+                        option.textContent = tree.name;
+                        treeSelect.appendChild(option);
+                    });
+                });
+        }
+        </script>
+        
+        <div style="margin-top:20px; text-align:center;">
+            <a href="?action=admin_users" class="btn btn-secondary btn-sm">← Kembali ke Dashboard Admin</a>
+        </div>
     </div>
 
 <?php endif; ?>
