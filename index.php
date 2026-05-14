@@ -3713,23 +3713,31 @@ if ($activeTreeId == 0): ?>
     function ll_svg_lines(&$n, $LL) {
         if (empty($n['children'])) return '';
         $NW = $LL['nw']; $HG = $LL['hg'];
-        $stemX   = $n['_x'] + $NW + $HG / 2;
         $parentY = $n['_my'];
         $LC = '#94a3b8'; $LW = 2;
         $out = '';
-        // garis horizontal dari node ke tiang
-        $out .= '<line x1="'.($n['_x']+$NW).'" y1="'.$parentY.'" x2="'.$stemX.'" y2="'.$parentY.'" stroke="'.$LC.'" stroke-width="'.$LW.'" stroke-linecap="round"/>';
-        // tiang vertikal (jika >1 anak)
-        if (count($n['children']) > 1) {
+
+        if (count($n['children']) === 1) {
+            // Anak tunggal: garis lurus langsung dari kanan parent ke kiri anak
+            $c = $n['children'][0];
+            $out .= '<line x1="'.($n['_x']+$NW).'" y1="'.$parentY.'" x2="'.$c['_x'].'" y2="'.$c['_my'].'" stroke="'.$LC.'" stroke-width="'.$LW.'" stroke-linecap="round"/>';
+            $out .= ll_svg_lines($c, $LL);
+        } else {
+            // Banyak anak: pakai tiang vertikal di tengah gap
+            $stemX = $n['_x'] + $NW + $HG / 2;
+            // garis horizontal dari parent ke tiang
+            $out .= '<line x1="'.($n['_x']+$NW).'" y1="'.$parentY.'" x2="'.$stemX.'" y2="'.$parentY.'" stroke="'.$LC.'" stroke-width="'.$LW.'" stroke-linecap="round"/>';
+            // tiang vertikal antara anak pertama dan terakhir
             $firstY = $n['children'][0]['_my'];
             $lastY  = $n['children'][count($n['children'])-1]['_my'];
             $out .= '<line x1="'.$stemX.'" y1="'.$firstY.'" x2="'.$stemX.'" y2="'.$lastY.'" stroke="'.$LC.'" stroke-width="'.$LW.'" stroke-linecap="round"/>';
+            // cabang horizontal ke setiap anak
+            foreach ($n['children'] as &$c) {
+                $out .= '<line x1="'.$stemX.'" y1="'.$c['_my'].'" x2="'.$c['_x'].'" y2="'.$c['_my'].'" stroke="'.$LC.'" stroke-width="'.$LW.'" stroke-linecap="round"/>';
+                $out .= ll_svg_lines($c, $LL);
+            }
+            unset($c);
         }
-        foreach ($n['children'] as &$c) {
-            $out .= '<line x1="'.$stemX.'" y1="'.$c['_my'].'" x2="'.$c['_x'].'" y2="'.$c['_my'].'" stroke="'.$LC.'" stroke-width="'.$LW.'" stroke-linecap="round"/>';
-            $out .= ll_svg_lines($c, $LL);
-        }
-        unset($c);
         return $out;
     }
 
