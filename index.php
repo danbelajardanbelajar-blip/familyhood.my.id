@@ -3766,7 +3766,7 @@ if ($activeTreeId == 0): ?>
         // bayangan
         $out .= '<rect x="'.($x+2).'" y="'.($y+3).'" width="'.$NW.'" height="'.$nh.'" rx="'.$RX.'" fill="rgba(0,0,0,0.07)"/>';
 
-        // kotak utama (klik buka profil)
+        // kotak utama (klik → lihat profil)
         $out .= '<a href="?action=view_person&amp;id='.$pid.'">';
         $out .= '<rect x="'.$x.'" y="'.$y.'" width="'.$NW.'" height="'.$nh.'" rx="'.$RX.'" fill="'.ll_e($fillC).'" stroke="'.ll_e($strokeC).'" stroke-width="1.5" style="cursor:pointer"/>';
 
@@ -3775,9 +3775,9 @@ if ($activeTreeId == 0): ?>
             $out .= '<line x1="'.($x+$NW-18).'" y1="'.($y+4).'" x2="'.($x+$NW-4).'" y2="'.($y+18).'" stroke="#94a3b8" stroke-width="1.5"/>';
         }
 
-        // nama utama
-        $nameLabel = ll_e(ll_trunc($n['name'], 22));
-        $out .= '<text x="'.($x+$NW/2).'" y="'.($y+$NPH/2).'" text-anchor="middle" dominant-baseline="middle" font-size="12" font-weight="700" fill="'.ll_e($textC).'" font-family="system-ui,sans-serif">'.$nameLabel.'</text>';
+        // nama utama (geser kanan sedikit agar tidak tertutup ikon edit)
+        $nameLabel = ll_e(ll_trunc($n['name'], 20));
+        $out .= '<text x="'.($x+$NW/2+8).'" y="'.($y+$NPH/2).'" text-anchor="middle" dominant-baseline="middle" font-size="12" font-weight="700" fill="'.ll_e($textC).'" font-family="system-ui,sans-serif">'.$nameLabel.'</text>';
 
         // dot gender
         $dotC = $n['gender']==='male' ? '#3b82f6' : ($n['gender']==='female' ? '#ec4899' : '#94a3b8');
@@ -3785,17 +3785,34 @@ if ($activeTreeId == 0): ?>
 
         $out .= '</a>';
 
+        // ── ikon edit orang utama (digambar SETELAH <a> utama agar berada di atas) ──
+        // Diletakkan di pojok kiri atas kotak NPH
+        $out .= '<a href="?action=bio&amp;id='.$pid.'&amp;mode=edit" title="Edit profil">';
+        $out .= '<rect x="'.($x+4).'" y="'.($y+4).'" width="18" height="18" rx="4" fill="#6366f1" opacity="0.9" style="cursor:pointer"/>';
+        // ikon pensil sederhana (path SVG mini)
+        $out .= '<path d="M'.($x+8).' '.($y+17).' l1 -3 7 -7 2 2 -7 7z M'.($x+15).' '.($y+8).' l1 -1 2 2 -1 1z" fill="white" stroke="none"/>';
+        $out .= '</a>';
+
         // pasangan
         foreach ($n['spouses'] as $i => $sp) {
             $spY  = $y + $NPH + $i * $NSH;
             $spid = (int)$sp['id'];
             $out .= '<line x1="'.($x+10).'" y1="'.$spY.'" x2="'.($x+$NW-10).'" y2="'.$spY.'" stroke="'.ll_e($strokeC).'" stroke-width="1"/>';
+
+            // baris pasangan (klik → lihat profil pasangan)
             $out .= '<a href="?action=view_person&amp;id='.$spid.'">';
-            $spLabel = ll_e('♥ '.ll_trunc($sp['name'], 20));
-            $out .= '<text x="'.($x+$NW/2).'" y="'.($spY+$NSH/2).'" text-anchor="middle" dominant-baseline="middle" font-size="11" font-weight="500" fill="#6366f1" font-family="system-ui,sans-serif">'.$spLabel.'</text>';
+            $spLabel = ll_e('♥ '.ll_trunc($sp['name'], 18));
+            $out .= '<text x="'.($x+$NW/2+8).'" y="'.($spY+$NSH/2).'" text-anchor="middle" dominant-baseline="middle" font-size="11" font-weight="500" fill="#6366f1" font-family="system-ui,sans-serif">'.$spLabel.'</text>';
             $sdotC = $sp['gender']==='male' ? '#3b82f6' : ($sp['gender']==='female' ? '#ec4899' : '#94a3b8');
             $out .= '<circle cx="'.($x+$NW-10).'" cy="'.($spY+$NSH/2).'" r="3.5" fill="'.$sdotC.'"/>';
-            $out .= '<rect x="'.$x.'" y="'.$spY.'" width="'.$NW.'" height="'.$NSH.'" fill="transparent" style="cursor:pointer"/>';
+            $out .= '<rect x="'.($x+26).'" y="'.$spY.'" width="'.($NW-26).'" height="'.$NSH.'" fill="transparent" style="cursor:pointer"/>';
+            $out .= '</a>';
+
+            // ikon edit pasangan (digambar terakhir agar di atas)
+            $spEY = $spY + ($NSH/2) - 8;
+            $out .= '<a href="?action=bio&amp;id='.$spid.'&amp;mode=edit" title="Edit profil pasangan">';
+            $out .= '<rect x="'.($x+4).'" y="'.$spEY.'" width="16" height="16" rx="3" fill="#6366f1" opacity="0.75" style="cursor:pointer"/>';
+            $out .= '<path d="M'.($x+8).' '.($spEY+13).' l1 -3 6 -6 2 2 -6 6z M'.($x+14).' '.($spEY+5).' l1 -1 2 2 -1 1z" fill="white" stroke="none"/>';
             $out .= '</a>';
         }
 
