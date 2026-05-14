@@ -4645,9 +4645,9 @@ elseif ($action === 'privacy'): ?>
         </div>
     </a>
     
-    <a href="?action=notifications" class="nav-item <?= ($action === 'notifications') ? 'active' : '' ?>">
-        <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
-        Info
+    <a href="?action=level_line" class="nav-item <?= ($action === 'level_line') ? 'active' : '' ?>">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="9" width="6" height="6" rx="1"/><rect x="16" y="4" width="6" height="6" rx="1"/><rect x="16" y="14" width="6" height="6" rx="1"/><line x1="8" y1="12" x2="16" y2="7"/><line x1="8" y1="12" x2="16" y2="17"/></svg>
+        Level Line
     </a>
 
     <a href="?action=settings" class="nav-item <?= ($action === 'settings' || $action === 'support' || $action === 'admin_users') ? 'active' : '' ?>">
