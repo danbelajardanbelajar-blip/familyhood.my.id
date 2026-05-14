@@ -3870,7 +3870,10 @@ if ($activeTreeId == 0): ?>
     </div>
 
     <!-- Pan/Zoom container -->
-    <div id="ll-outer" style="width:100%;height:100%;overflow:hidden;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;">
+    <div id="ll-outer"
+         data-svg-w="<?= (int)($svgW ?? 400) ?>"
+         data-svg-h="<?= (int)($svgH ?? 200) ?>"
+         style="width:100%;height:100%;overflow:hidden;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;">
         <div id="ll-wrapper" style="display:inline-block;transform-origin:0 0;will-change:transform;padding:0;">
             <?= $ll_svgOutput ?>
         </div>
@@ -3902,12 +3905,29 @@ if ($activeTreeId == 0): ?>
         applyT();
     }
 
+    /* ── fit seluruh diagram di layar (dengan padding) ── */
+    function fitScreen() {
+        var svgW = parseInt(outer.getAttribute('data-svg-w'), 10) || 800;
+        var svgH = parseInt(outer.getAttribute('data-svg-h'), 10) || 400;
+        var ow = outer.clientWidth  || outer.offsetWidth  || 360;
+        var oh = outer.clientHeight || outer.offsetHeight || 500;
+        var PAD = 32; // padding dalam px
+        var s = Math.min((ow - PAD) / svgW, (oh - PAD) / svgH);
+        s = Math.min(s, 1);          // jangan pernah zoom-in saat init
+        s = Math.max(s, 0.05);       // batas bawah
+        _scale = s;
+        _tx = (ow - svgW * s) / 2;  // tengahkan horizontal
+        _ty = (oh - svgH * s) / 2;  // tengahkan vertikal
+        if (_ty < 0) _ty = PAD / 2; // pastikan tidak terpotong atas
+        applyT();
+    }
+
     /* ── tombol toolbar ── */
     window.llZoom = function(f) {
         var r = outer.getBoundingClientRect();
         zoomAt(f, r.width / 2, r.height / 2);
     };
-    window.llReset = function() { _scale=1; _tx=0; _ty=0; applyT(); };
+    window.llReset = function() { fitScreen(); };
 
     /* ── inertia setelah drag dilepas ── */
     function startInertia() {
@@ -4030,6 +4050,12 @@ if ($activeTreeId == 0): ?>
         restoreLinks();
         cancelAnimationFrame(_raf);
     }, { passive: true });
+
+    /* ── inisialisasi: fit diagram ke layar ── */
+    // requestAnimationFrame memastikan outer sudah punya ukuran final
+    requestAnimationFrame(function() {
+        requestAnimationFrame(fitScreen);
+    });
 })();
 </script>
 
