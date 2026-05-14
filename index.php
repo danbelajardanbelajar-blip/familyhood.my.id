@@ -4047,35 +4047,16 @@ elseif ($action === 'privacy'): ?>
                 $worksheet = $spreadsheet->getActiveSheet();
                 $rows = $worksheet->toArray();
                 
-                // Skip header if any, assume first row is data
                 $imported = 0;
                 $errors = [];
-                
-                // Array to hold persons by generation
-                $generations = [];
-                $personMap = []; // name => id
+                $personMap = []; // tidak digunakan untuk dedup, hanya dummy agar signature fungsi tetap sama
                 
                 function insertOrGetPerson($mysqli, $name, $userId, $treeId, &$personMap) {
-                    if (isset($personMap[$name])) return $personMap[$name];
-                    
-                    // Check if exists
-                    $stmt = $mysqli->prepare("SELECT id FROM persons WHERE name = ? AND user_id = ? AND tree_id = ?");
-                    $stmt->bind_param('sii', $name, $userId, $treeId);
-                    $stmt->execute();
-                    $result = $stmt->get_result();
-                    if ($result->num_rows > 0) {
-                        $id = $result->fetch_assoc()['id'];
-                        $personMap[$name] = $id;
-                        return $id;
-                    }
-                    
-                    // Insert new
+                    // Selalu buat person baru — nama sama ≠ orang sama
                     $stmt = $mysqli->prepare("INSERT INTO persons (name, user_id, tree_id, gender, is_alive) VALUES (?, ?, ?, 'unknown', 1)");
                     $stmt->bind_param('sii', $name, $userId, $treeId);
                     $stmt->execute();
-                    $id = $mysqli->insert_id;
-                    $personMap[$name] = $id;
-                    return $id;
+                    return $mysqli->insert_id;
                 }
                 
                 // addRelation: cek per arah + tipe agar tidak duplikat
@@ -4108,12 +4089,11 @@ elseif ($action === 'privacy'): ?>
                         }
                         if (empty($nameParts)) continue;
 
-                        // Insert semua orang dalam sel ini
+                        // Insert semua orang dalam sel ini (selalu baru)
                         $ids = [];
                         foreach ($nameParts as $name) {
-                            $isNew = !isset($personMap[$name]);
                             $ids[] = insertOrGetPerson($mysqli, $name, $targetUserId, $treeId, $personMap);
-                            if ($isNew) $imported++; // hitung hanya orang baru (unik)
+                            $imported++;
                         }
 
                         if (!isset($colData[$colIndex])) $colData[$colIndex] = [];
