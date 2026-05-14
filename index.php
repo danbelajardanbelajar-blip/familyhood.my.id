@@ -4172,7 +4172,7 @@ elseif ($action === 'privacy'): ?>
                             }
                             
                             if ($parentName && isset($personMap[$parentName])) {
-                                addRelation($mysqli, $personMap[$parentName], $personId, 'anak');
+                                addRelation($mysqli, $personMap[$parentName], $personId, 'anak', $targetUserId);
                             }
                         }
                         $imported++;
