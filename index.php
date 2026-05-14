@@ -3577,6 +3577,36 @@ if ($activeTreeId == 0): ?>
         <a href="?action=home" class="btn btn-primary">Pilih Pohon Keluarga</a>
     </div>
 <?php else:
+    /* ── konstanta layout ── */
+    $LL = ['nw'=>200,'nph'=>52,'nsh'=>36,'hg'=>80,'vg'=>16,'px'=>40,'py'=>40,'rx'=>8];
+    $LL_FILLS   = ['#dbeafe','#dcfce7','#fef3c7','#fce7f3','#ede9fe','#ffedd5','#ecfeff','#f0fdf4','#fef9c3','#fae8ff'];
+    $LL_STROKES = ['#93c5fd','#86efac','#fde68a','#f9a8d4','#c4b5fd','#fdba74','#67e8f9','#6ee7b7','#fef08a','#e879f9'];
+    $LL_TEXTS   = ['#1e40af','#166534','#92400e','#9d174d','#5b21b6','#9a3412','#164e63','#14532d','#854d0e','#86198f'];
+
+    /* ── helpers layout (PHP) ── */
+    function ll_nh(&$n, $LL)  { return $LL['nph'] + count($n['spouses']) * $LL['nsh']; }
+
+    function ll_sh(&$n, $LL) {
+        if (isset($n['_sh'])) return $n['_sh'];
+        $myH = ll_nh($n, $LL) + $LL['vg'];
+        if (empty($n['children'])) { $n['_sh'] = $myH; return $myH; }
+        $ch = 0;
+        foreach ($n['children'] as &$c) $ch += ll_sh($c, $LL);
+        unset($c);
+        $n['_sh'] = max($myH, $ch);
+        return $n['_sh'];
+    }
+
+    function ll_layout(&$n, $x, $sy, $LL) {
+        $sh = ll_sh($n, $LL);  $nh = ll_nh($n, $LL);
+        $n['_x'] = $x;  $n['_y'] = $sy + $sh/2 - $nh/2;
+        $n['_my'] = $n['_y'] + $nh/2;  $n['_nh'] = $nh;
+        $cy = $sy;
+        foreach ($n['children'] as &$c) { ll_layout($c, $x + $LL['nw'] + $LL['hg'], $cy, $LL); $cy += ll_sh($c, $LL); }
+        unset($c);
+    }
+
+    /* ── build data tree ── */
     list($personsByGen, $maxGen, $maxHeight, $generationData, $allPersonsData, $parentChildren, $spouses, $childParents)
         = fh_compute_generations($mysqli, $activeTreeId);
 
@@ -3647,8 +3677,133 @@ if ($activeTreeId == 0): ?>
         $n = fh_build_ll_node($rid, $allPersonsData, $parentChildren, $spouses, $ll_visited, 1);
         if ($n !== null) $treeRoots[] = $n;
     }
-    $treeJson   = json_encode($treeRoots, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-    $debugInfo  = 'Persons: '.count($allPersonsData).' | Roots: '.count($treeRoots).' | Nodes JSON: '.strlen($treeJson).'b';
+
+    /* ── jalankan layout PHP ── */
+    $ll_totalY = $LL['py'];
+    foreach ($treeRoots as &$llRoot) {
+        ll_layout($llRoot, $LL['px'], $ll_totalY, $LL);
+        $ll_totalY += ll_sh($llRoot, $LL);
+    }
+    unset($llRoot);
+    $ll_totalY += $LL['py'];
+
+    // Hitung lebar max (BFS)
+    $ll_maxX = 0;
+    $ll_stack = $treeRoots;
+    while (!empty($ll_stack)) {
+        $llnd = array_pop($ll_stack);
+        $rx2 = ($llnd['_x'] ?? 0) + $LL['nw'] + $LL['px'];
+        if ($rx2 > $ll_maxX) $ll_maxX = $rx2;
+        foreach ($llnd['children'] as $llc) $ll_stack[] = $llc;
+    }
+
+    // Hitung max gen untuk legenda
+    $ll_maxGen = 0;
+    $ll_stack2 = $treeRoots;
+    while (!empty($ll_stack2)) {
+        $llnd2 = array_pop($ll_stack2);
+        if ($llnd2['gen'] > $ll_maxGen) $ll_maxGen = $llnd2['gen'];
+        foreach ($llnd2['children'] as $llc2) $ll_stack2[] = $llc2;
+    }
+
+    /* ── fungsi gambar SVG (PHP) ── */
+    function ll_e($s) { return htmlspecialchars((string)$s, ENT_XML1, 'UTF-8'); }
+    function ll_trunc($s, $n = 24) { $s = (string)$s; return mb_strlen($s) > $n ? mb_substr($s, 0, $n - 1) . '…' : $s; }
+
+    function ll_svg_lines(&$n, $LL) {
+        if (empty($n['children'])) return '';
+        $NW = $LL['nw']; $HG = $LL['hg'];
+        $stemX   = $n['_x'] + $NW + $HG / 2;
+        $parentY = $n['_my'];
+        $LC = '#94a3b8'; $LW = 2;
+        $out = '';
+        // garis horizontal dari node ke tiang
+        $out .= '<line x1="'.($n['_x']+$NW).'" y1="'.$parentY.'" x2="'.$stemX.'" y2="'.$parentY.'" stroke="'.$LC.'" stroke-width="'.$LW.'" stroke-linecap="round"/>';
+        // tiang vertikal (jika >1 anak)
+        if (count($n['children']) > 1) {
+            $firstY = $n['children'][0]['_my'];
+            $lastY  = $n['children'][count($n['children'])-1]['_my'];
+            $out .= '<line x1="'.$stemX.'" y1="'.$firstY.'" x2="'.$stemX.'" y2="'.$lastY.'" stroke="'.$LC.'" stroke-width="'.$LW.'" stroke-linecap="round"/>';
+        }
+        foreach ($n['children'] as &$c) {
+            $out .= '<line x1="'.$stemX.'" y1="'.$c['_my'].'" x2="'.$c['_x'].'" y2="'.$c['_my'].'" stroke="'.$LC.'" stroke-width="'.$LW.'" stroke-linecap="round"/>';
+            $out .= ll_svg_lines($c, $LL);
+        }
+        unset($c);
+        return $out;
+    }
+
+    function ll_svg_nodes(&$n, $LL, $FILLS, $STROKES, $TEXTS) {
+        $NW = $LL['nw']; $NPH = $LL['nph']; $NSH = $LL['nsh']; $RX = $LL['rx'];
+        $gi      = ($n['gen'] - 1) % count($FILLS);
+        $fillC   = $FILLS[$gi];
+        $strokeC = $STROKES[$gi];
+        $textC   = $TEXTS[$gi];
+        $x = $n['_x']; $y = $n['_y']; $nh = $n['_nh'];
+        $pid = (int)$n['id'];
+        $out = '';
+
+        // bayangan
+        $out .= '<rect x="'.($x+2).'" y="'.($y+3).'" width="'.$NW.'" height="'.$nh.'" rx="'.$RX.'" fill="rgba(0,0,0,0.07)"/>';
+
+        // kotak utama (klik buka profil)
+        $out .= '<a href="?action=view_person&amp;id='.$pid.'">';
+        $out .= '<rect x="'.$x.'" y="'.$y.'" width="'.$NW.'" height="'.$nh.'" rx="'.$RX.'" fill="'.ll_e($fillC).'" stroke="'.ll_e($strokeC).'" stroke-width="1.5" style="cursor:pointer"/>';
+
+        // tanda almarhum
+        if (!$n['is_alive']) {
+            $out .= '<line x1="'.($x+$NW-18).'" y1="'.($y+4).'" x2="'.($x+$NW-4).'" y2="'.($y+18).'" stroke="#94a3b8" stroke-width="1.5"/>';
+        }
+
+        // nama utama
+        $nameLabel = ll_e(ll_trunc($n['name'], 22));
+        $out .= '<text x="'.($x+$NW/2).'" y="'.($y+$NPH/2).'" text-anchor="middle" dominant-baseline="middle" font-size="12" font-weight="700" fill="'.ll_e($textC).'" font-family="system-ui,sans-serif">'.$nameLabel.'</text>';
+
+        // dot gender
+        $dotC = $n['gender']==='male' ? '#3b82f6' : ($n['gender']==='female' ? '#ec4899' : '#94a3b8');
+        $out .= '<circle cx="'.($x+$NW-10).'" cy="'.($y+$NPH/2).'" r="4" fill="'.$dotC.'"/>';
+
+        $out .= '</a>';
+
+        // pasangan
+        foreach ($n['spouses'] as $i => $sp) {
+            $spY  = $y + $NPH + $i * $NSH;
+            $spid = (int)$sp['id'];
+            $out .= '<line x1="'.($x+10).'" y1="'.$spY.'" x2="'.($x+$NW-10).'" y2="'.$spY.'" stroke="'.ll_e($strokeC).'" stroke-width="1"/>';
+            $out .= '<a href="?action=view_person&amp;id='.$spid.'">';
+            $spLabel = ll_e('♥ '.ll_trunc($sp['name'], 20));
+            $out .= '<text x="'.($x+$NW/2).'" y="'.($spY+$NSH/2).'" text-anchor="middle" dominant-baseline="middle" font-size="11" font-weight="500" fill="#6366f1" font-family="system-ui,sans-serif">'.$spLabel.'</text>';
+            $sdotC = $sp['gender']==='male' ? '#3b82f6' : ($sp['gender']==='female' ? '#ec4899' : '#94a3b8');
+            $out .= '<circle cx="'.($x+$NW-10).'" cy="'.($spY+$NSH/2).'" r="3.5" fill="'.$sdotC.'"/>';
+            $out .= '<rect x="'.$x.'" y="'.$spY.'" width="'.$NW.'" height="'.$NSH.'" fill="transparent" style="cursor:pointer"/>';
+            $out .= '</a>';
+        }
+
+        // rekursif anak
+        foreach ($n['children'] as &$c) {
+            $out .= ll_svg_nodes($c, $LL, $FILLS, $STROKES, $TEXTS);
+        }
+        unset($c);
+        return $out;
+    }
+
+    /* ── build SVG string ── */
+    ob_start();
+    if (empty($treeRoots)): ?>
+        <div style="padding:60px 40px;color:#94a3b8;font-size:1rem;text-align:center;">Belum ada data pohon keluarga.</div>
+    <?php else:
+        $svgW = max($ll_maxX, 400);
+        $svgH = max($ll_totalY, 200);
+        echo '<svg xmlns="http://www.w3.org/2000/svg" width="'.$svgW.'" height="'.$svgH.'" style="display:block;">';
+        // garis konektor dulu
+        foreach ($treeRoots as &$llR) echo ll_svg_lines($llR, $LL);
+        unset($llR);
+        // lalu kotak node
+        foreach ($treeRoots as &$llR2) echo ll_svg_nodes($llR2, $LL, $LL_FILLS, $LL_STROKES, $LL_TEXTS);
+        unset($llR2);
+        echo '</svg>';
+    endif;
+    $ll_svgOutput = ob_get_clean();
 ?>
 
 <div style="position:relative;background:#f1f5f9;border-radius:12px;border:1px solid #e2e8f0;height:88vh;overflow:hidden;user-select:none;">
@@ -3659,267 +3814,34 @@ if ($activeTreeId == 0): ?>
         <span style="color:#cbd5e1;margin:0 2px;">|</span>
         <button onclick="llZoom(1.2)" style="border:none;background:#f1f5f9;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:1rem;font-weight:700;color:#334155;">+</button>
         <button onclick="llZoom(0.8)" style="border:none;background:#f1f5f9;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:1rem;font-weight:700;color:#334155;">−</button>
-        <button onclick="llReset()"   style="border:none;background:#f1f5f9;border-radius:6px;padding:4px 9px;cursor:pointer;font-size:0.82rem;color:#334155;">⊡ Reset</button>
+        <button onclick="llReset()" style="border:none;background:#f1f5f9;border-radius:6px;padding:4px 9px;cursor:pointer;font-size:0.82rem;color:#334155;">⊡ Reset</button>
     </div>
 
-    <!-- Legenda -->
-    <div id="ll-legend" style="position:absolute;top:12px;right:12px;z-index:20;background:rgba(255,255,255,0.97);padding:8px 12px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.12);font-size:0.78rem;color:#475569;"></div>
+    <!-- Legenda generasi -->
+    <div style="position:absolute;top:12px;right:12px;z-index:20;background:rgba(255,255,255,0.97);padding:8px 12px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.12);font-size:0.78rem;color:#475569;">
+        <div style="font-weight:600;margin-bottom:5px;color:#334155;">Generasi</div>
+        <?php
+        $llLegFills   = $LL_FILLS;
+        $llLegStrokes = $LL_STROKES;
+        for ($llg = 1; $llg <= min($ll_maxGen, 10); $llg++) {
+            $lgi = ($llg - 1) % count($llLegFills);
+            echo '<div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;">'
+               . '<div style="width:13px;height:13px;border-radius:3px;background:'.$llLegFills[$lgi].';border:1.5px solid '.$llLegStrokes[$lgi].';flex-shrink:0;"></div>'
+               . '<span>Gen '.$llg.'</span></div>';
+        }
+        ?>
+    </div>
 
-    <!-- Debug info (hapus setelah berfungsi) -->
-    <div style="position:absolute;bottom:8px;left:8px;z-index:20;background:rgba(0,0,0,0.55);color:#fff;font-size:10px;padding:4px 8px;border-radius:6px;"><?= htmlspecialchars($debugInfo) ?></div>
-
-    <!-- Pan/Zoom canvas -->
+    <!-- Pan/Zoom container -->
     <div id="ll-outer" style="width:100%;height:100%;overflow:hidden;cursor:grab;">
-        <div id="ll-wrapper" style="display:inline-block;transform-origin:0 0;will-change:transform;">
-            <canvas id="ll-canvas-fallback" style="display:none;"></canvas>
-            <div id="ll-svg-host"></div>
+        <div id="ll-wrapper" style="display:inline-block;transform-origin:0 0;will-change:transform;padding:0;">
+            <?= $ll_svgOutput ?>
         </div>
     </div>
 </div>
 
 <script>
-var LL = (function() {
-
-    /* ── data dari PHP ── */
-    var ROOTS = <?= $treeJson ?>;
-
-    /* ── konstanta layout ── */
-    var NW   = 200;   // node width
-    var NPH  = 52;    // tinggi baris orang utama
-    var NSH  = 36;    // tinggi baris pasangan
-    var HG   = 80;    // horizontal gap
-    var VG   = 16;    // vertical gap
-    var PX   = 40;    // padding X
-    var PY   = 40;    // padding Y
-    var RX   = 8;     // border-radius
-    var LC   = '#94a3b8'; // warna garis
-    var LW   = '2';
-
-    var FILLS   = ['#dbeafe','#dcfce7','#fef3c7','#fce7f3','#ede9fe','#ffedd5','#ecfeff','#f0fdf4','#fef9c3','#fae8ff'];
-    var STROKES = ['#93c5fd','#86efac','#fde68a','#f9a8d4','#c4b5fd','#fdba74','#67e8f9','#6ee7b7','#fef08a','#e879f9'];
-    var TEXTS   = ['#1e40af','#166534','#92400e','#9d174d','#5b21b6','#9a3412','#164e63','#14532d','#854d0e','#86198f'];
-
-    var SVG_NS = 'http://www.w3.org/2000/svg';
-
-    /* ── helpers ── */
-    function mkEl(tag, attrs) {
-        var e = document.createElementNS(SVG_NS, tag);
-        for (var k in attrs) { if (attrs.hasOwnProperty(k)) e.setAttribute(k, attrs[k]); }
-        return e;
-    }
-
-    function trunc(s, n) {
-        n = n || 24;
-        if (!s) return '';
-        return s.length > n ? s.slice(0, n - 1) + '…' : s;
-    }
-
-    function nodeH(n) {
-        return NPH + (n.spouses ? n.spouses.length : 0) * NSH;
-    }
-
-    function subtreeH(n) {
-        var myH = nodeH(n) + VG;
-        if (!n.children || n.children.length === 0) return myH;
-        var ch = 0;
-        for (var i = 0; i < n.children.length; i++) ch += subtreeH(n.children[i]);
-        return ch > myH ? ch : myH;
-    }
-
-    /* ── layout (posisi koordinat) ── */
-    function layout(n, x, startY) {
-        var sh = subtreeH(n);
-        var nh = nodeH(n);
-        n._x    = x;
-        n._y    = startY + sh / 2 - nh / 2;
-        n._midY = n._y + nh / 2;
-        n._nh   = nh;
-        var cy = startY;
-        if (n.children) {
-            for (var i = 0; i < n.children.length; i++) {
-                layout(n.children[i], x + NW + HG, cy);
-                cy += subtreeH(n.children[i]);
-            }
-        }
-    }
-
-    /* ── gambar garis konektor ── */
-    function drawLines(svg, n) {
-        if (!n.children || n.children.length === 0) return;
-        var stemX   = n._x + NW + HG / 2;
-        var parentY = n._midY;
-
-        // garis dari kotak orang tua ke tiang
-        svg.appendChild(mkEl('line', {
-            x1: n._x + NW, y1: parentY, x2: stemX, y2: parentY,
-            stroke: LC, 'stroke-width': LW, 'stroke-linecap': 'round'
-        }));
-
-        // tiang vertikal
-        if (n.children.length > 1) {
-            svg.appendChild(mkEl('line', {
-                x1: stemX, y1: n.children[0]._midY,
-                x2: stemX, y2: n.children[n.children.length - 1]._midY,
-                stroke: LC, 'stroke-width': LW, 'stroke-linecap': 'round'
-            }));
-        }
-
-        // cabang horizontal ke setiap anak
-        for (var i = 0; i < n.children.length; i++) {
-            var c = n.children[i];
-            svg.appendChild(mkEl('line', {
-                x1: stemX, y1: c._midY, x2: c._x, y2: c._midY,
-                stroke: LC, 'stroke-width': LW, 'stroke-linecap': 'round'
-            }));
-            drawLines(svg, c);
-        }
-    }
-
-    /* ── gambar satu kotak node ── */
-    function drawNode(svg, n) {
-        var nh      = n._nh;
-        var gi      = (n.gen - 1) % FILLS.length;
-        var fillC   = FILLS[gi];
-        var strokeC = STROKES[gi];
-        var textC   = TEXTS[gi];
-        var pid     = n.id;
-
-        // bayangan
-        svg.appendChild(mkEl('rect', {
-            x: n._x + 2, y: n._y + 3, width: NW, height: nh,
-            rx: RX, fill: 'rgba(0,0,0,0.07)'
-        }));
-
-        // kotak utama
-        var box = mkEl('rect', {
-            x: n._x, y: n._y, width: NW, height: nh,
-            rx: RX, fill: fillC, stroke: strokeC, 'stroke-width': '1.5',
-            style: 'cursor:pointer'
-        });
-        (function(id){ box.addEventListener('click', function(){ location.href='?action=view_person&id='+id; }); })(pid);
-        svg.appendChild(box);
-
-        // almarhum
-        if (!n.is_alive) {
-            svg.appendChild(mkEl('line', {
-                x1: n._x + NW - 18, y1: n._y + 4, x2: n._x + NW - 4, y2: n._y + 18,
-                stroke: '#94a3b8', 'stroke-width': '1.5'
-            }));
-        }
-
-        // nama utama
-        var nameT = mkEl('text', {
-            x: n._x + NW / 2, y: n._y + NPH / 2,
-            'text-anchor': 'middle', 'dominant-baseline': 'middle',
-            'font-size': '12px', 'font-weight': '700', fill: textC,
-            'font-family': 'system-ui,-apple-system,sans-serif'
-        });
-        nameT.textContent = trunc(n.name, 24);
-        svg.appendChild(nameT);
-
-        // dot gender
-        var dotC = n.gender === 'male' ? '#3b82f6' : (n.gender === 'female' ? '#ec4899' : '#94a3b8');
-        svg.appendChild(mkEl('circle', { cx: n._x + NW - 10, cy: n._y + NPH / 2, r: '4', fill: dotC }));
-
-        // pasangan
-        for (var i = 0; i < (n.spouses ? n.spouses.length : 0); i++) {
-            var sp   = n.spouses[i];
-            var spY  = n._y + NPH + i * NSH;
-            var spid = sp.id;
-
-            svg.appendChild(mkEl('line', {
-                x1: n._x + 10, y1: spY, x2: n._x + NW - 10, y2: spY,
-                stroke: strokeC, 'stroke-width': '1'
-            }));
-
-            var spT = mkEl('text', {
-                x: n._x + NW / 2, y: spY + NSH / 2,
-                'text-anchor': 'middle', 'dominant-baseline': 'middle',
-                'font-size': '11px', 'font-weight': '500', fill: '#6366f1',
-                'font-family': 'system-ui,-apple-system,sans-serif'
-            });
-            spT.textContent = '♥ ' + trunc(sp.name, 22);
-            svg.appendChild(spT);
-
-            var spBox = mkEl('rect', {
-                x: n._x, y: spY, width: NW, height: NSH,
-                fill: 'transparent', style: 'cursor:pointer'
-            });
-            (function(id){ spBox.addEventListener('click', function(e){ e.stopPropagation(); location.href='?action=view_person&id='+id; }); })(spid);
-            svg.appendChild(spBox);
-
-            var sdotC = sp.gender === 'male' ? '#3b82f6' : (sp.gender === 'female' ? '#ec4899' : '#94a3b8');
-            svg.appendChild(mkEl('circle', { cx: n._x + NW - 10, cy: spY + NSH / 2, r: '3.5', fill: sdotC }));
-        }
-
-        // rekursif anak
-        if (n.children) {
-            for (var ci = 0; ci < n.children.length; ci++) drawNode(svg, n.children[ci]);
-        }
-    }
-
-    /* ── legenda ── */
-    function buildLegend() {
-        var maxGen = 0;
-        var stack = ROOTS.slice();
-        while (stack.length) {
-            var nd = stack.pop();
-            if (nd.gen > maxGen) maxGen = nd.gen;
-            if (nd.children) for (var i = 0; i < nd.children.length; i++) stack.push(nd.children[i]);
-        }
-        var leg = document.getElementById('ll-legend');
-        if (!leg || maxGen === 0) return;
-        var html = '<div style="font-weight:600;margin-bottom:5px;color:#334155;">Generasi</div>';
-        for (var g = 1; g <= Math.min(maxGen, 10); g++) {
-            var gi = (g - 1) % FILLS.length;
-            html += '<div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;">'
-                  + '<div style="width:13px;height:13px;border-radius:3px;background:' + FILLS[gi] + ';border:1.5px solid ' + STROKES[gi] + ';flex-shrink:0;"></div>'
-                  + '<span>Gen ' + g + '</span></div>';
-        }
-        leg.innerHTML = html;
-    }
-
-    /* ── render utama ── */
-    function render() {
-        var host = document.getElementById('ll-svg-host');
-        if (!host) { alert('ll-svg-host tidak ditemukan'); return; }
-        host.innerHTML = '';
-
-        if (!ROOTS || ROOTS.length === 0) {
-            host.innerHTML = '<p style="color:#94a3b8;padding:60px 40px;font-size:1rem;">Belum ada data pohon keluarga.</p>';
-            return;
-        }
-
-        // hitung posisi
-        var totalY = PY;
-        for (var i = 0; i < ROOTS.length; i++) {
-            layout(ROOTS[i], PX, totalY);
-            totalY += subtreeH(ROOTS[i]) + VG;
-        }
-        totalY += PY;
-
-        // hitung lebar max
-        var maxX = 0;
-        var stack2 = ROOTS.slice();
-        while (stack2.length) {
-            var nd2 = stack2.pop();
-            var rx2 = nd2._x + NW + PX;
-            if (rx2 > maxX) maxX = rx2;
-            if (nd2.children) for (var j = 0; j < nd2.children.length; j++) stack2.push(nd2.children[j]);
-        }
-
-        // buat SVG
-        var svg = mkEl('svg', { width: maxX, height: totalY });
-
-        // garis dulu, lalu kotak
-        for (var ri = 0; ri < ROOTS.length; ri++) drawLines(svg, ROOTS[ri]);
-        for (var rj = 0; rj < ROOTS.length; rj++) drawNode(svg,  ROOTS[rj]);
-
-        host.appendChild(svg);
-        buildLegend();
-    }
-
-    /* ── pan & zoom ── */
+(function() {
     var _scale = 1, _tx = 0, _ty = 0, _drag = false, _sx = 0, _sy = 0, _lDist = 0;
 
     function applyT() {
@@ -3930,55 +3852,37 @@ var LL = (function() {
     window.llZoom = function(f) { _scale = Math.min(4, Math.max(0.1, _scale * f)); applyT(); };
     window.llReset = function() { _scale = 1; _tx = 0; _ty = 0; applyT(); };
 
-    function initPanZoom() {
-        var outer = document.getElementById('ll-outer');
-        if (!outer) return;
+    var outer = document.getElementById('ll-outer');
+    if (!outer) return;
 
-        outer.addEventListener('mousedown', function(e) {
-            _drag = true; _sx = e.clientX - _tx; _sy = e.clientY - _ty;
-            outer.style.cursor = 'grabbing';
-        });
-        window.addEventListener('mouseup', function() { _drag = false; outer.style.cursor = 'grab'; });
-        window.addEventListener('mousemove', function(e) {
-            if (!_drag) return;
-            _tx = e.clientX - _sx; _ty = e.clientY - _sy; applyT();
-        });
-        outer.addEventListener('wheel', function(e) {
-            e.preventDefault();
-            llZoom(e.deltaY < 0 ? 1.1 : 0.9);
-        }, { passive: false });
+    outer.addEventListener('mousedown', function(e) {
+        _drag = true; _sx = e.clientX - _tx; _sy = e.clientY - _ty;
+        outer.style.cursor = 'grabbing';
+    });
+    window.addEventListener('mouseup', function() { _drag = false; outer.style.cursor = 'grab'; });
+    window.addEventListener('mousemove', function(e) {
+        if (!_drag) return;
+        _tx = e.clientX - _sx; _ty = e.clientY - _sy; applyT();
+    });
+    outer.addEventListener('wheel', function(e) {
+        e.preventDefault();
+        llZoom(e.deltaY < 0 ? 1.1 : 0.9);
+    }, { passive: false });
 
-        outer.addEventListener('touchstart', function(e) {
-            if (e.touches.length === 1) { _drag=true; _sx=e.touches[0].clientX-_tx; _sy=e.touches[0].clientY-_ty; }
-            if (e.touches.length === 2) { _lDist = Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY); }
-        }, { passive: true });
-        outer.addEventListener('touchmove', function(e) {
-            e.preventDefault();
-            if (e.touches.length === 1 && _drag) { _tx=e.touches[0].clientX-_sx; _ty=e.touches[0].clientY-_sy; applyT(); }
-            if (e.touches.length === 2) {
-                var d = Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY);
-                llZoom(d / _lDist); _lDist = d;
-            }
-        }, { passive: false });
-        outer.addEventListener('touchend', function() { _drag = false; });
-    }
-
-    /* ── init ── */
-    return {
-        init: function() {
-            try {
-                render();
-                initPanZoom();
-            } catch(e) {
-                var host = document.getElementById('ll-svg-host');
-                if (host) host.innerHTML = '<div style="padding:24px;color:#dc2626;background:#fef2f2;margin:24px;border-radius:8px;"><strong>Error rendering:</strong><br>' + e.message + '</div>';
-                console.error('Level Line error:', e);
-            }
+    outer.addEventListener('touchstart', function(e) {
+        if (e.touches.length === 1) { _drag=true; _sx=e.touches[0].clientX-_tx; _sy=e.touches[0].clientY-_ty; }
+        if (e.touches.length === 2) { _lDist = Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY); }
+    }, { passive: true });
+    outer.addEventListener('touchmove', function(e) {
+        e.preventDefault();
+        if (e.touches.length === 1 && _drag) { _tx=e.touches[0].clientX-_sx; _ty=e.touches[0].clientY-_sy; applyT(); }
+        if (e.touches.length === 2) {
+            var d = Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY);
+            llZoom(d / _lDist); _lDist = d;
         }
-    };
+    }, { passive: false });
+    outer.addEventListener('touchend', function() { _drag = false; });
 })();
-
-document.addEventListener('DOMContentLoaded', function() { LL.init(); });
 </script>
 
 <?php endif; ?>
