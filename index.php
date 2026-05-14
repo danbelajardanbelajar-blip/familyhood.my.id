@@ -3601,9 +3601,21 @@ if ($activeTreeId == 0): ?>
         $sh = ll_sh($n, $LL);  $nh = ll_nh($n, $LL);
         $n['_x'] = $x;  $n['_y'] = $sy + $sh/2 - $nh/2;
         $n['_my'] = $n['_y'] + $nh/2;  $n['_nh'] = $nh;
-        $cy = $sy;
-        foreach ($n['children'] as &$c) { ll_layout($c, $x + $LL['nw'] + $LL['hg'], $cy, $LL); $cy += ll_sh($c, $LL); }
-        unset($c);
+        $cx = $x + $LL['nw'] + $LL['hg'];
+        if (count($n['children']) === 1) {
+            // Anak tunggal: tempatkan subtree anak tepat di tengah parent
+            // sehingga _my anak == _my parent → garis lurus horizontal
+            $csh = ll_sh($n['children'][0], $LL);
+            $csy = $sy + $sh/2 - $csh/2;
+            ll_layout($n['children'][0], $cx, $csy, $LL);
+        } else {
+            $cy = $sy;
+            foreach ($n['children'] as &$c) {
+                ll_layout($c, $cx, $cy, $LL);
+                $cy += ll_sh($c, $LL);
+            }
+            unset($c);
+        }
     }
 
     /* ── build data tree ── */
@@ -3718,9 +3730,9 @@ if ($activeTreeId == 0): ?>
         $out = '';
 
         if (count($n['children']) === 1) {
-            // Anak tunggal: garis lurus langsung dari kanan parent ke kiri anak
+            // Anak tunggal: garis lurus horizontal (layout sudah memastikan _my sejajar)
             $c = $n['children'][0];
-            $out .= '<line x1="'.($n['_x']+$NW).'" y1="'.$parentY.'" x2="'.$c['_x'].'" y2="'.$c['_my'].'" stroke="'.$LC.'" stroke-width="'.$LW.'" stroke-linecap="round"/>';
+            $out .= '<line x1="'.($n['_x']+$NW).'" y1="'.$parentY.'" x2="'.$c['_x'].'" y2="'.$parentY.'" stroke="'.$LC.'" stroke-width="'.$LW.'" stroke-linecap="round"/>';
             $out .= ll_svg_lines($c, $LL);
         } else {
             // Banyak anak: pakai tiang vertikal di tengah gap
