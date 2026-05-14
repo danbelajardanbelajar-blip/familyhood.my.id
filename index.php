@@ -4373,16 +4373,7 @@ elseif ($action === 'privacy'): ?>
                 
                 $imported = 0;
                 $errors = [];
-                $personMap = []; // tidak digunakan untuk dedup, hanya dummy agar signature fungsi tetap sama
-                
-                function insertOrGetPerson($mysqli, $name, $userId, $treeId, &$personMap) {
-                    // Selalu buat person baru — nama sama ≠ orang sama
-                    $stmt = $mysqli->prepare("INSERT INTO persons (name, user_id, tree_id, gender, is_alive) VALUES (?, ?, ?, 'unknown', 1)");
-                    $stmt->bind_param('sii', $name, $userId, $treeId);
-                    $stmt->execute();
-                    return $mysqli->insert_id;
-                }
-                
+
                 // addRelation: cek per arah + tipe agar tidak duplikat
                 function addRelation($mysqli, $person1Id, $person2Id, $type, $userId) {
                     $stmt = $mysqli->prepare("SELECT id FROM relations WHERE person_id = ? AND related_person_id = ? AND relation_type = ? AND user_id = ?");
@@ -4395,7 +4386,7 @@ elseif ($action === 'privacy'): ?>
                     }
                 }
 
-                // === STEP 1: Parse semua sel ke struktur berindeks kolom ===
+                // === STEP 1: Parse semua sel ke nama saja (belum insert ke DB) ===
                 // $colData[colIndex] = [ ['row'=>int, 'names'=>[], 'ids'=>[]], ... ]
                 $colData = [];
 
@@ -4413,18 +4404,11 @@ elseif ($action === 'privacy'): ?>
                         }
                         if (empty($nameParts)) continue;
 
-                        // Insert semua orang dalam sel ini (selalu baru)
-                        $ids = [];
-                        foreach ($nameParts as $name) {
-                            $ids[] = insertOrGetPerson($mysqli, $name, $targetUserId, $treeId, $personMap);
-                            $imported++;
-                        }
-
                         if (!isset($colData[$colIndex])) $colData[$colIndex] = [];
                         $colData[$colIndex][] = [
                             'row'   => $rowIndex,
                             'names' => $nameParts,
-                            'ids'   => $ids,
+                            'ids'   => [], // diisi di Step 2
                         ];
                     }
                 }
@@ -4435,63 +4419,115 @@ elseif ($action === 'privacy'): ?>
                 }
                 unset($colEntries);
 
-                // === STEP 2: Bangun relasi + urutan saudara ===
-                // $childOrderMap: key = "col_row" dari parentEntry → counter urutan anak
+                // === STEP 2: Insert persons + bangun relasi + urutan saudara ===
+                //
+                // ATURAN DEDUP: Jika nama utama (index 0) muncul lebih dari satu kali
+                // di kolom yang sama dan memiliki orang tua yang SAMA (entri terdekat
+                // di kolom sebelumnya), maka dianggap ORANG YANG SAMA — hanya beda pasangan.
+                // Contoh:
+                //   Kolom A     Kolom B
+                //   Ahmad  →    Budi + Siti
+                //               Budi + Aminah   ← Budi ini = Budi yang sama, pasangan ke-2
+                //
+                // $sameChildMap : "parentCol_parentRow:namaUtama" => personId
+                // $childOrderMap: "parentCol_parentRow"           => counter urutan anak
+
                 $childOrderMap = [];
+                $sameChildMap  = [];
 
-                foreach ($colData as $colIndex => $entries) {
-                    foreach ($entries as $entry) {
+                // Proses kolom berurutan agar ids kolom sebelumnya sudah tersedia
+                ksort($colData);
+
+                foreach ($colData as $colIndex => &$colEntries) {
+                    foreach ($colEntries as &$entry) {
                         $rowIndex = $entry['row'];
-                        $ids      = $entry['ids'];
+                        $names    = $entry['names'];
 
-                        // --- Relasi pasangan (suami/istri) ---
-                        // Orang pertama dipasangkan dengan setiap orang berikutnya (poligami ditangani)
-                        if (count($ids) >= 2) {
-                            for ($i = 1; $i < count($ids); $i++) {
-                                addRelation($mysqli, $ids[0], $ids[$i], 'pasangan', $targetUserId);
-                                addRelation($mysqli, $ids[$i], $ids[0], 'pasangan', $targetUserId);
+                        // --- Cari parent terlebih dulu (perlu untuk dedup) ---
+                        $parentEntry    = null;
+                        $parentEntryIdx = null;
+                        $parentKey      = null;
+
+                        if ($colIndex > 0 && isset($colData[$colIndex - 1])) {
+                            foreach ($colData[$colIndex - 1] as $ppIdx => $pp) {
+                                if ($pp['row'] <= $rowIndex) {
+                                    $parentEntry    = $pp;
+                                    $parentEntryIdx = $ppIdx;
+                                } else {
+                                    break;
+                                }
+                            }
+                            if ($parentEntry !== null) {
+                                $parentKey = ($colIndex - 1) . '_' . $parentEntry['row'];
                             }
                         }
 
-                        // --- Relasi orang tua → anak + urutan saudara ---
-                        // Cari entri TERDEKAT di atas (baris terbesar ≤ baris saat ini) di kolom sebelumnya
-                        if ($colIndex > 0 && isset($colData[$colIndex - 1])) {
-                            $parentEntry = null;
-                            foreach ($colData[$colIndex - 1] as $pp) {
-                                if ($pp['row'] <= $rowIndex) {
-                                    $parentEntry = $pp; // Terus diperbarui → dapat yang terdekat
-                                } else {
-                                    break; // Array sudah urut, tidak perlu lanjut
-                                }
+                        // --- Tentukan ID orang utama (dengan logika dedup) ---
+                        $mainName   = $names[0];
+                        $dedupeKey  = ($parentKey !== null) ? ($parentKey . ':' . $mainName) : null;
+                        $isExisting = false;
+
+                        if ($dedupeKey !== null && isset($sameChildMap[$dedupeKey])) {
+                            // Nama ini sudah ada sebagai anak dari orang tua yang sama → pakai ID lama
+                            $mainId     = $sameChildMap[$dedupeKey];
+                            $isExisting = true;
+                        } else {
+                            // Buat person baru
+                            $stmtIns = $mysqli->prepare("INSERT INTO persons (name, user_id, tree_id, gender, is_alive) VALUES (?, ?, ?, 'unknown', 1)");
+                            $stmtIns->bind_param('sii', $mainName, $targetUserId, $treeId);
+                            $stmtIns->execute();
+                            $mainId = $mysqli->insert_id;
+                            $imported++;
+                            if ($dedupeKey !== null) {
+                                $sameChildMap[$dedupeKey] = $mainId;
                             }
+                        }
 
-                            if ($parentEntry !== null) {
-                                $childId   = $ids[0]; // Orang pertama di sel = anak
-                                $parentIds = $parentEntry['ids'];
+                        // --- Buat person baru untuk setiap pasangan (index 1+, selalu baru) ---
+                        $spouseIds = [];
+                        for ($i = 1; $i < count($names); $i++) {
+                            $spName = $names[$i];
+                            $stmtSp = $mysqli->prepare("INSERT INTO persons (name, user_id, tree_id, gender, is_alive) VALUES (?, ?, ?, 'unknown', 1)");
+                            $stmtSp->bind_param('sii', $spName, $targetUserId, $treeId);
+                            $stmtSp->execute();
+                            $spouseIds[] = $mysqli->insert_id;
+                            $imported++;
+                        }
 
-                                // Hitung urutan anak berdasarkan parent cell (col_row sebagai kunci unik)
-                                $parentKey = ($colIndex - 1) . '_' . $parentEntry['row'];
-                                if (!isset($childOrderMap[$parentKey])) {
-                                    $childOrderMap[$parentKey] = 1;
-                                }
+                        // Simpan ids ke entry agar kolom berikutnya bisa mengambil parentIds
+                        $ids         = array_merge([$mainId], $spouseIds);
+                        $entry['ids'] = $ids;
+
+                        // --- Relasi pasangan ---
+                        foreach ($spouseIds as $spId) {
+                            addRelation($mysqli, $mainId, $spId, 'pasangan', $targetUserId);
+                            addRelation($mysqli, $spId, $mainId, 'pasangan', $targetUserId);
+                        }
+
+                        // --- Relasi orang tua → anak + urutan saudara ---
+                        // Hanya untuk orang yang benar-benar baru (bukan dedup)
+                        if (!$isExisting && $parentKey !== null && $parentEntryIdx !== null) {
+                            $parentIds = $colData[$colIndex - 1][$parentEntryIdx]['ids'];
+
+                            if (!empty($parentIds)) {
+                                if (!isset($childOrderMap[$parentKey])) $childOrderMap[$parentKey] = 1;
                                 $childOrder = $childOrderMap[$parentKey]++;
 
-                                // Simpan child_order ke tabel persons
                                 $stmtOrder = $mysqli->prepare("UPDATE persons SET child_order = ? WHERE id = ?");
-                                $stmtOrder->bind_param('ii', $childOrder, $childId);
+                                $stmtOrder->bind_param('ii', $childOrder, $mainId);
                                 $stmtOrder->execute();
 
                                 foreach ($parentIds as $pi => $parentId) {
-                                    // Orang tua → anak
-                                    addRelation($mysqli, $parentId, $childId, 'anak', $targetUserId);
-                                    // Anak → orang tua (heuristik: indeks 0 = ayah, indeks 1 = ibu)
+                                    addRelation($mysqli, $parentId, $mainId, 'anak', $targetUserId);
                                     $reverseType = ($pi === 0) ? 'ayah' : 'ibu';
-                                    addRelation($mysqli, $childId, $parentId, $reverseType, $targetUserId);
+                                    addRelation($mysqli, $mainId, $parentId, $reverseType, $targetUserId);
                                 }
                             }
                         }
                     }
+                    unset($entry);
                 }
+                unset($colEntries);
                 
                 echo "<div class='alert alert-success'>Import selesai. $imported data diproses.</div>";
                 if (!empty($errors)) {
