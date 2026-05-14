@@ -4055,11 +4055,46 @@ elseif ($action === 'privacy'): ?>
                 $generations = [];
                 $personMap = []; // name => id
                 
+                function insertOrGetPerson($mysqli, $name, $userId, $treeId, &$personMap) {
+                    if (isset($personMap[$name])) return $personMap[$name];
+                    
+                    // Check if exists
+                    $stmt = $mysqli->prepare("SELECT id FROM persons WHERE name = ? AND user_id = ? AND tree_id = ?");
+                    $stmt->bind_param('sii', $name, $userId, $treeId);
+                    $stmt->execute();
+                    $result = $stmt->get_result();
+                    if ($result->num_rows > 0) {
+                        $id = $result->fetch_assoc()['id'];
+                        $personMap[$name] = $id;
+                        return $id;
+                    }
+                    
+                    // Insert new
+                    $stmt = $mysqli->prepare("INSERT INTO persons (name, user_id, tree_id, gender, is_alive) VALUES (?, ?, ?, 'unknown', 1)");
+                    $stmt->bind_param('sii', $name, $userId, $treeId);
+                    $stmt->execute();
+                    $id = $mysqli->insert_id;
+                    $personMap[$name] = $id;
+                    return $id;
+                }
+                
+                function addRelation($mysqli, $person1Id, $person2Id, $type) {
+                    // Check if exists
+                    $stmt = $mysqli->prepare("SELECT id FROM relations WHERE (person1_id = ? AND person2_id = ?) OR (person1_id = ? AND person2_id = ?)");
+                    $stmt->bind_param('iiii', $person1Id, $person2Id, $person2Id, $person1Id);
+                    $stmt->execute();
+                    if ($stmt->get_result()->num_rows == 0) {
+                        $stmt = $mysqli->prepare("INSERT INTO relations (person1_id, person2_id, relation_type) VALUES (?, ?, ?)");
+                        $stmt->bind_param('iis', $person1Id, $person2Id, $type);
+                        $stmt->execute();
+                    }
+                }
+                
                 foreach ($rows as $rowIndex => $row) {
                     if ($rowIndex == 0 && empty(array_filter($row))) continue; // Skip empty first row
                     
                     foreach ($row as $colIndex => $cell) {
-                        if (!empty(trim($cell))) {
+                        if ($cell !== null && !empty(trim($cell))) {
                             $gen = $colIndex + 1;
                             if (!isset($generations[$gen])) $generations[$gen] = [];
                             $generations[$gen][] = ['row' => $rowIndex, 'data' => trim($cell)];
@@ -4148,41 +4183,6 @@ elseif ($action === 'privacy'): ?>
                 if (!empty($errors)) {
                     echo "<div class='alert alert-error'>Error: " . implode(', ', $errors) . "</div>";
                 }
-            }
-        }
-        
-        function insertOrGetPerson($mysqli, $name, $userId, $treeId, &$personMap) {
-            if (isset($personMap[$name])) return $personMap[$name];
-            
-            // Check if exists
-            $stmt = $mysqli->prepare("SELECT id FROM persons WHERE name = ? AND user_id = ? AND tree_id = ?");
-            $stmt->bind_param('sii', $name, $userId, $treeId);
-            $stmt->execute();
-            $result = $stmt->get_result();
-            if ($result->num_rows > 0) {
-                $id = $result->fetch_assoc()['id'];
-                $personMap[$name] = $id;
-                return $id;
-            }
-            
-            // Insert new
-            $stmt = $mysqli->prepare("INSERT INTO persons (name, user_id, tree_id, gender, is_alive) VALUES (?, ?, ?, 'unknown', 1)");
-            $stmt->bind_param('sii', $name, $userId, $treeId);
-            $stmt->execute();
-            $id = $mysqli->insert_id;
-            $personMap[$name] = $id;
-            return $id;
-        }
-        
-        function addRelation($mysqli, $person1Id, $person2Id, $type) {
-            // Check if exists
-            $stmt = $mysqli->prepare("SELECT id FROM relations WHERE (person1_id = ? AND person2_id = ?) OR (person1_id = ? AND person2_id = ?)");
-            $stmt->bind_param('iiii', $person1Id, $person2Id, $person2Id, $person1Id);
-            $stmt->execute();
-            if ($stmt->get_result()->num_rows == 0) {
-                $stmt = $mysqli->prepare("INSERT INTO relations (person1_id, person2_id, relation_type) VALUES (?, ?, ?)");
-                $stmt->bind_param('iis', $person1Id, $person2Id, $type);
-                $stmt->execute();
             }
         }
         ?>
