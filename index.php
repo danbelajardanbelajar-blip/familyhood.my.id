@@ -4111,7 +4111,10 @@ elseif ($action === 'privacy'): ?>
                 }
                 unset($colEntries);
 
-                // === STEP 2: Bangun relasi ===
+                // === STEP 2: Bangun relasi + urutan saudara ===
+                // $childOrderMap: key = "col_row" dari parentEntry → counter urutan anak
+                $childOrderMap = [];
+
                 foreach ($colData as $colIndex => $entries) {
                     foreach ($entries as $entry) {
                         $rowIndex = $entry['row'];
@@ -4126,7 +4129,7 @@ elseif ($action === 'privacy'): ?>
                             }
                         }
 
-                        // --- Relasi orang tua → anak ---
+                        // --- Relasi orang tua → anak + urutan saudara ---
                         // Cari entri TERDEKAT di atas (baris terbesar ≤ baris saat ini) di kolom sebelumnya
                         if ($colIndex > 0 && isset($colData[$colIndex - 1])) {
                             $parentEntry = null;
@@ -4139,14 +4142,25 @@ elseif ($action === 'privacy'): ?>
                             }
 
                             if ($parentEntry !== null) {
-                                $childId    = $ids[0]; // Orang pertama di sel = anak
-                                $parentIds  = $parentEntry['ids'];
+                                $childId   = $ids[0]; // Orang pertama di sel = anak
+                                $parentIds = $parentEntry['ids'];
+
+                                // Hitung urutan anak berdasarkan parent cell (col_row sebagai kunci unik)
+                                $parentKey = ($colIndex - 1) . '_' . $parentEntry['row'];
+                                if (!isset($childOrderMap[$parentKey])) {
+                                    $childOrderMap[$parentKey] = 1;
+                                }
+                                $childOrder = $childOrderMap[$parentKey]++;
+
+                                // Simpan child_order ke tabel persons
+                                $stmtOrder = $mysqli->prepare("UPDATE persons SET child_order = ? WHERE id = ?");
+                                $stmtOrder->bind_param('ii', $childOrder, $childId);
+                                $stmtOrder->execute();
 
                                 foreach ($parentIds as $pi => $parentId) {
                                     // Orang tua → anak
                                     addRelation($mysqli, $parentId, $childId, 'anak', $targetUserId);
-                                    // Anak → orang tua
-                                    // Heuristik: indeks 0 = ayah, indeks 1 = ibu
+                                    // Anak → orang tua (heuristik: indeks 0 = ayah, indeks 1 = ibu)
                                     $reverseType = ($pi === 0) ? 'ayah' : 'ibu';
                                     addRelation($mysqli, $childId, $parentId, $reverseType, $targetUserId);
                                 }
