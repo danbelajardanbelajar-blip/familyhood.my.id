@@ -4078,10 +4078,10 @@ elseif ($action === 'privacy'): ?>
                     return $id;
                 }
                 
+                // addRelation: cek per arah + tipe agar tidak duplikat
                 function addRelation($mysqli, $person1Id, $person2Id, $type, $userId) {
-                    // Check if exists
-                    $stmt = $mysqli->prepare("SELECT id FROM relations WHERE ((person_id = ? AND related_person_id = ?) OR (person_id = ? AND related_person_id = ?)) AND user_id = ?");
-                    $stmt->bind_param('iiiii', $person1Id, $person2Id, $person2Id, $person1Id, $userId);
+                    $stmt = $mysqli->prepare("SELECT id FROM relations WHERE person_id = ? AND related_person_id = ? AND relation_type = ? AND user_id = ?");
+                    $stmt->bind_param('iiis', $person1Id, $person2Id, $type, $userId);
                     $stmt->execute();
                     if ($stmt->get_result()->num_rows == 0) {
                         $stmt = $mysqli->prepare("INSERT INTO relations (user_id, person_id, related_person_id, relation_type) VALUES (?, ?, ?, ?)");
@@ -4089,93 +4089,88 @@ elseif ($action === 'privacy'): ?>
                         $stmt->execute();
                     }
                 }
-                
+
+                // === STEP 1: Parse semua sel ke struktur berindeks kolom ===
+                // $colData[colIndex] = [ ['row'=>int, 'names'=>[], 'ids'=>[]], ... ]
+                $colData = [];
+
                 foreach ($rows as $rowIndex => $row) {
-                    if ($rowIndex == 0 && empty(array_filter($row))) continue; // Skip empty first row
-                    
                     foreach ($row as $colIndex => $cell) {
-                        if ($cell !== null && !empty(trim($cell))) {
-                            $gen = $colIndex + 1;
-                            if (!isset($generations[$gen])) $generations[$gen] = [];
-                            $generations[$gen][] = ['row' => $rowIndex, 'data' => trim($cell)];
+                        if ($cell === null || trim($cell) === '') continue;
+                        $cell = trim($cell);
+
+                        // Pisah berdasarkan "+" lalu bersihkan
+                        $rawParts = explode('+', $cell);
+                        $nameParts = [];
+                        foreach ($rawParts as $part) {
+                            $name = trim($part);
+                            if ($name !== '') $nameParts[] = $name;
                         }
+                        if (empty($nameParts)) continue;
+
+                        // Insert semua orang dalam sel ini
+                        $ids = [];
+                        foreach ($nameParts as $name) {
+                            $ids[] = insertOrGetPerson($mysqli, $name, $targetUserId, $treeId, $personMap);
+                            $imported++;
+                        }
+
+                        if (!isset($colData[$colIndex])) $colData[$colIndex] = [];
+                        $colData[$colIndex][] = [
+                            'row'   => $rowIndex,
+                            'names' => $nameParts,
+                            'ids'   => $ids,
+                        ];
                     }
                 }
-                
-                // Process each generation
-                foreach ($generations as $gen => $persons) {
-                    foreach ($persons as $p) {
-                        $data = $p['data'];
-                        $rowIndex = $p['row'];
-                        
-                        // Check if contains +
-                        if (strpos($data, '+') !== false) {
-                            // Spouse
-                            $names = explode('+', $data);
-                            $name1 = trim($names[0]);
-                            $name2 = isset($names[1]) ? trim($names[1]) : '';
-                            
-                            // First name is child of parent in left column
-                            $parentGen = $gen - 1;
-                            $parentName = null;
-                            if ($parentGen > 0 && isset($generations[$parentGen])) {
-                                // Find parent in same row or previous
-                                foreach ($generations[$parentGen] as $pp) {
-                                    if ($pp['row'] <= $rowIndex) {
-                                        $parentData = $pp['data'];
-                                        if (strpos($parentData, '+') === false) {
-                                            $parentName = trim($parentData);
-                                            break;
-                                        } else {
-                                            $pnames = explode('+', $parentData);
-                                            $parentName = trim($pnames[0]);
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-                            
-                            // Insert or get person1
-                            $person1Id = insertOrGetPerson($mysqli, $name1, $targetUserId, $treeId, $personMap);
-                            if ($name2) {
-                                $person2Id = insertOrGetPerson($mysqli, $name2, $targetUserId, $treeId, $personMap);
-                                // Add spouse relation
-                                addRelation($mysqli, $person1Id, $person2Id, 'pasangan', $targetUserId);
-                            }
-                            
-                            // If parent, add child relation
-                            if ($parentName && isset($personMap[$parentName])) {
-                                addRelation($mysqli, $personMap[$parentName], $person1Id, 'anak', $targetUserId);
-                            }
-                            
-                        } else {
-                            // Single person
-                            $name = $data;
-                            $personId = insertOrGetPerson($mysqli, $name, $targetUserId, $treeId, $personMap);
-                            
-                            // Parent
-                            $parentGen = $gen - 1;
-                            $parentName = null;
-                            if ($parentGen > 0 && isset($generations[$parentGen])) {
-                                foreach ($generations[$parentGen] as $pp) {
-                                    if ($pp['row'] <= $rowIndex) {
-                                        $parentData = $pp['data'];
-                                        if (strpos($parentData, '+') === false) {
-                                            $parentName = trim($parentData);
-                                        } else {
-                                            $pnames = explode('+', $parentData);
-                                            $parentName = trim($pnames[0]);
-                                        }
-                                        break;
-                                    }
-                                }
-                            }
-                            
-                            if ($parentName && isset($personMap[$parentName])) {
-                                addRelation($mysqli, $personMap[$parentName], $personId, 'anak', $targetUserId);
+
+                // Urutkan setiap kolom berdasarkan baris (ascending)
+                foreach ($colData as &$colEntries) {
+                    usort($colEntries, function($a, $b) { return $a['row'] - $b['row']; });
+                }
+                unset($colEntries);
+
+                // === STEP 2: Bangun relasi ===
+                foreach ($colData as $colIndex => $entries) {
+                    foreach ($entries as $entry) {
+                        $rowIndex = $entry['row'];
+                        $ids      = $entry['ids'];
+
+                        // --- Relasi pasangan (suami/istri) ---
+                        // Orang pertama dipasangkan dengan setiap orang berikutnya (poligami ditangani)
+                        if (count($ids) >= 2) {
+                            for ($i = 1; $i < count($ids); $i++) {
+                                addRelation($mysqli, $ids[0], $ids[$i], 'pasangan', $targetUserId);
+                                addRelation($mysqli, $ids[$i], $ids[0], 'pasangan', $targetUserId);
                             }
                         }
-                        $imported++;
+
+                        // --- Relasi orang tua → anak ---
+                        // Cari entri TERDEKAT di atas (baris terbesar ≤ baris saat ini) di kolom sebelumnya
+                        if ($colIndex > 0 && isset($colData[$colIndex - 1])) {
+                            $parentEntry = null;
+                            foreach ($colData[$colIndex - 1] as $pp) {
+                                if ($pp['row'] <= $rowIndex) {
+                                    $parentEntry = $pp; // Terus diperbarui → dapat yang terdekat
+                                } else {
+                                    break; // Array sudah urut, tidak perlu lanjut
+                                }
+                            }
+
+                            if ($parentEntry !== null) {
+                                $childId    = $ids[0]; // Orang pertama di sel = anak
+                                $parentIds  = $parentEntry['ids'];
+
+                                foreach ($parentIds as $pi => $parentId) {
+                                    // Orang tua → anak
+                                    addRelation($mysqli, $parentId, $childId, 'anak', $targetUserId);
+                                    // Anak → orang tua
+                                    // Heuristik: indeks 0 = ayah, indeks 1 = ibu
+                                    $reverseType = ($pi === 0) ? 'ayah' : 'ibu';
+                                    addRelation($mysqli, $childId, $parentId, $reverseType, $targetUserId);
+                                }
+                            }
+                        }
                     }
                 }
                 
