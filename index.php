@@ -1460,44 +1460,52 @@ $error = ''; $success = ''; $bio_error = ''; $bio_success = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
-    // Pengamanan: Admin hanya boleh lihat-lihat (View Only) jika sedang mode intip
-    if ($isViewingOthers) {
-        die("MODE VIEW ONLY: Anda sedang melihat data user lain. Tidak diizinkan mengubah data.");
-    }
+    // Admin dapat mengubah data user ketika user mengizinkan akses admin.
+    // Semua tindakan CRUD selanjutnya akan menggunakan $targetUserId dari tree yang sedang diintip.
 
     // 1. TAMBAH ORANG (QUICK)
     if (isset($_POST['create_person_quick'])) {
         $name = trim($_POST['name']??''); 
         $gender = trim($_POST['gender']??''); 
         $note = trim($_POST['note']??'');
-        
+        $place_of_birth = trim($_POST['place_of_birth']??'');
+        $address = trim($_POST['address']??'');
+        $phone_number = trim($_POST['phone_number']??'');
+        $dob = empty($_POST['date_of_birth']) ? null : $_POST['date_of_birth'];
+        $alive = ($_POST['is_alive'] === '') ? 1 : (int)$_POST['is_alive'];
+        $dod = ($alive == 0 && !empty($_POST['date_of_death'])) ? $_POST['date_of_death'] : null;
+
         if ($name === '') { $error = "Nama kosong."; }
         else {
-            // Cek dulu jumlah keluarga saat ini (Untuk deteksi Keluarga Baru vs Tambah Anggota)
-            $countCheck = $mysqli->query("SELECT COUNT(*) as total FROM persons WHERE user_id = $targetUserId")->fetch_assoc()['total'];
-            $myName = $_SESSION['user_name']; // Ambil nama user yang login
+            $treeId = ($isViewingOthers && isset($_SESSION['admin_viewing_tree_id'])) ? intval($_SESSION['admin_viewing_tree_id']) : ($_SESSION['current_tree_id'] ?? 0);
+            if ($treeId == 0) {
+                $error = "Session Error: Tidak ada proyek keluarga yang dipilih. Silakan kembali ke Home.";
+            } else {
+                // Cek dulu jumlah keluarga saat ini (Untuk deteksi Keluarga Baru vs Tambah Anggota)
+                $countCheck = $mysqli->query("SELECT COUNT(*) as total FROM persons WHERE user_id = $targetUserId")->fetch_assoc()['total'];
+                $myName = $_SESSION['user_name']; // Ambil nama user yang login
 
-            // INSERT dengan last_editor_name, address, dan phone_number
-            $stmt = $mysqli->prepare("INSERT INTO persons (user_id, tree_id, name, gender, place_of_birth, address, phone_number, date_of_birth, is_alive, date_of_death, note, last_editor_name) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)");
-            $stmt->bind_param("iissssssisss", $targetUserId, $treeId, $name, $gender, $place_of_birth, $address, $phone_number, $dob, $alive, $dod, $note, $myName);
-            // ...
+                // INSERT dengan last_editor_name, address, dan phone_number
+                $stmt = $mysqli->prepare("INSERT INTO persons (user_id, tree_id, name, gender, place_of_birth, address, phone_number, date_of_birth, is_alive, date_of_death, note, last_editor_name) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)");
+                $stmt->bind_param("iissssssisss", $targetUserId, $treeId, $name, $gender, $place_of_birth, $address, $phone_number, $dob, $alive, $dod, $note, $myName);
 
-            
-            if ($stmt->execute()) {
-                $success = "Anggota dibuat."; 
-                
-                // --- LOGIKA NOTIFIKASI TAMBAH ---
-                if ($countCheck == 0) {
-                    // Ini adalah anggota PERTAMA (Keluarga Baru)
-                    fh_send_notification($mysqli, $targetUserId, "Keluarga Baru Terbentuk! 🎉", "Selamat! Anda telah memulai pohon keluarga baru dengan menambahkan $name.", "success");
+                if ($stmt->execute()) {
+                    $success = "Anggota dibuat."; 
+                    
+                    // --- LOGIKA NOTIFIKASI TAMBAH ---
+                    if ($countCheck == 0) {
+                        // Ini adalah anggota PERTAMA (Keluarga Baru)
+                        fh_send_notification($mysqli, $targetUserId, "Keluarga Baru Terbentuk! 🎉", "Selamat! Anda telah memulai pohon keluarga baru dengan menambahkan $name.", "success");
+                    } else {
+                        // Ini adalah penambahan anggota selanjutnya
+                        fh_send_notification($mysqli, $targetUserId, "Anggota Baru Ditambahkan 🎉", "$name berhasil ditambahkan ke dalam silsilah keluarga.", "success");
+                    }
+                    // --------------------------------
                 } else {
-                    // Ini adalah penambahan anggota selanjutnya
-                    fh_send_notification($mysqli, $targetUserId, "Anggota Baru Ditambahkan 🎉", "$name berhasil ditambahkan ke dalam silsilah keluarga.", "success");
+                    $error = $stmt->error;
                 }
-                // --------------------------------
-                
-            } else $error = $stmt->error;
-            $stmt->close();
+                $stmt->close();
+            }
         }
     }
     
@@ -1640,7 +1648,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $action = 'add_person'; 
         } else {
             // Validasi input sukses, sekarang cek Tree ID
-            $treeId = $_SESSION['current_tree_id'] ?? 0;
+            $treeId = ($isViewingOthers && isset($_SESSION['admin_viewing_tree_id'])) ? intval($_SESSION['admin_viewing_tree_id']) : ($_SESSION['current_tree_id'] ?? 0);
             
             if ($treeId == 0) {
                 $error = "Session Error: Tidak ada proyek keluarga yang dipilih. Silakan kembali ke Home.";
@@ -2040,7 +2048,7 @@ if (isset($_GET['delete_person'])) {
 
 // if ($action === 'home') { $allPersons = fh_get_all_persons($mysqli, $targetUserId); }
 if ($action === 'add_person') { 
-    $activeTreeId = $_SESSION['current_tree_id'] ?? 0;
+    $activeTreeId = ($isViewingOthers && isset($_SESSION['admin_viewing_tree_id'])) ? intval($_SESSION['admin_viewing_tree_id']) : ($_SESSION['current_tree_id'] ?? 0);
     $allPersons = fh_get_persons_by_tree($mysqli, $activeTreeId); 
 }
 
@@ -2312,9 +2320,7 @@ if ($action === 'bio') {
                 <div class="page-header">
                     <a href="?action=reset_tree" class="back-button-link">← Kembali</a>
                     <h2 class="tree-title"><?= htmlspecialchars($treeNameToDisplay) ?></h2>
-                    <?php if (!$isViewingOthers): // Hanya tampilkan tombol Tambah jika bukan mode intip Admin ?>
-                        <a href="?action=add_person" class="btn btn-primary btn-add-member">+ Anggota</a>
-                    <?php endif; ?>
+                    <a href="?action=add_person" class="btn btn-primary btn-add-member">+ Anggota</a>
                 </div>
                 
                 <?php if (empty($allPersons)): ?>
@@ -2611,17 +2617,13 @@ if ($action === 'bio') {
                             </div>
                         <?php endif; ?>
                         </div>
-                        <?php if (!$isViewingOthers): ?>
                         <a href="?action=bio&id=<?= $currentPerson['id'] ?>&mode=edit" class="btn btn-primary btn-block" style="margin-top:15px;">✏️ Edit Profil</a>
-                        <?php endif; ?>
                 <?php endif; ?>
             </div>
 
 
             <div class="card">
-                    <?php if (!$isViewingOthers): ?>
                     <h3 class="section-title" style="margin-top:20px;">Hubungkan</h3>
-                    <?php endif; ?>
                     <div style="font-size:0.95rem; color:#475569; font-weight:600; margin-bottom:10px;">Tambahkan</div>
                 <div style="display:flex; gap:5px; flex-wrap:wrap;"> <a href="?action=add_person&from_id=<?= $currentPerson['id'] ?>&relation_type=ayah" class="btn btn-sm btn-secondary">+ Ayah</a>
                     <a href="?action=add_person&from_id=<?= $currentPerson['id'] ?>&relation_type=ibu" class="btn btn-sm btn-secondary">+ Ibu</a>
@@ -2726,7 +2728,6 @@ if ($action === 'bio') {
                                 <td style="text-align:right;">
                                     <div class="relation-actions">
                                         
-                                        <?php if (!$isViewingOthers): ?>
                                         <?php if (($r['relation_type'] ?? '') === 'pasangan'): ?>
                                         <a href="?action=bio&id=<?= $currentPerson['id'] ?>&toggle_divorced=<?= $r['id'] ?>" 
                                            class="btn-chip <?= !empty($r['is_divorced']) ? 'btn-chip-delete' : 'btn-chip-married' ?>"
@@ -2739,7 +2740,6 @@ if ($action === 'bio') {
                                            onclick="event.stopPropagation(); return confirm('Hapus relasi ini?');">
                                             🗑 Hapus
                                         </a>
-                                        <?php endif; ?>
                                     </div>
                                 </td>
                             </tr>
