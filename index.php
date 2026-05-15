@@ -4575,8 +4575,13 @@ elseif ($action === 'privacy'): ?>
         <h2>📊 Import Data dari Excel</h2>
         
         <p style="font-size:0.9rem; color:#6b7280; margin-bottom:20px;">
-            Unggah file Excel untuk mengimpor data keluarga. Pastikan format sesuai: kolom pertama generasi 1, kolom kedua generasi 2, dst. Data dengan tanda "+" menandai suami/istri.
+            Unggah file Excel untuk mengimpor data keluarga. Format yang didukung:
         </p>
+        <ul style="font-size:0.85rem; color:#6b7280; margin-bottom:20px; padding-left:20px; line-height:1.8;">
+            <li><b>Baris pertama (header):</b> Gunakan G1, G2, G3, ... untuk kolom generasi; dan <em>Tempat Lahir</em>, <em>Tanggal Lahir</em>, <em>Alamat</em>, <em>No HP</em> untuk data tambahan.</li>
+            <li><b>Tanda "+"</b> memisahkan nama suami/istri dalam kolom generasi, dan juga memisahkan data ekstra per pasangan (mis. <em>Malang+Surabaya</em> = Tempat Lahir orang ke-1 dan ke-2).</li>
+            <li><b>Tanpa header:</b> File lama tanpa baris header tetap bisa diimpor — semua kolom dianggap generasi berurutan dari kiri.</li>
+        </ul>
         
         <?php
         if (isset($_POST['upload_excel'])) {
@@ -4596,7 +4601,7 @@ elseif ($action === 'privacy'): ?>
                 $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($fileTmp);
                 $worksheet = $spreadsheet->getActiveSheet();
                 $rows = $worksheet->toArray();
-                
+
                 $imported = 0;
                 $errors = [];
 
@@ -4612,16 +4617,87 @@ elseif ($action === 'privacy'): ?>
                     }
                 }
 
-                // === STEP 1: Parse semua sel ke nama saja (belum insert ke DB) ===
-                // $colData[colIndex] = [ ['row'=>int, 'names'=>[], 'ids'=>[]], ... ]
+                // === STEP 0: Baca baris header (baris pertama) ===
+                // Identifikasi kolom generasi (G1, G2, ..., G7, dst) dan kolom ekstra
+                // (Tempat Lahir, Tanggal Lahir, Alamat, No HP)
+                //
+                // $genCols  : [ actualColIndex, ... ] → diurutkan berdasarkan nomor generasi
+                // $extraCols: [ actualColIndex => 'field_name', ... ]
+
+                $headerRow  = count($rows) > 0 ? $rows[0] : [];
+                $genCols    = [];   // [ genNumber => actualColIndex ]
+                $extraCols  = [];   // [ actualColIndex => 'place_of_birth'|'date_of_birth'|'address'|'phone_number' ]
+                $hasHeader  = false;
+
+                foreach ($headerRow as $colIndex => $cell) {
+                    if ($cell === null || trim($cell) === '') continue;
+                    $h = trim($cell);
+                    if (preg_match('/^G(\d+)$/i', $h, $m)) {
+                        // Kolom generasi (G1, G2, G3, ...)
+                        $genCols[intval($m[1])] = $colIndex;
+                        $hasHeader = true;
+                    } elseif (preg_match('/tempat\s*lahir/i', $h)) {
+                        $extraCols[$colIndex] = 'place_of_birth';
+                        $hasHeader = true;
+                    } elseif (preg_match('/tanggal\s*lahir/i', $h)) {
+                        $extraCols[$colIndex] = 'date_of_birth';
+                        $hasHeader = true;
+                    } elseif (preg_match('/^alamat$/i', $h)) {
+                        $extraCols[$colIndex] = 'address';
+                        $hasHeader = true;
+                    } elseif (preg_match('/no[\s.\-]*hp/i', $h)) {
+                        $extraCols[$colIndex] = 'phone_number';
+                        $hasHeader = true;
+                    }
+                }
+
+                // Urutkan genCols berdasarkan nomor generasi, hasilkan array [actualColIndex, ...]
+                ksort($genCols);
+                $sortedGenCols = array_values($genCols); // index 0 = G1, index 1 = G2, dst
+                // Map actualColIndex → virtualIndex (posisi dalam urutan generasi)
+                $colToVirtual = [];
+                foreach ($sortedGenCols as $vi => $ac) {
+                    $colToVirtual[$ac] = $vi;
+                }
+
+                // Jika tidak ada header (file lama tanpa baris header), fallback ke mode lama:
+                // semua kolom dianggap generasi berurutan dari kolom 0
+                $dataStartRow = $hasHeader ? 1 : 0;
+
+                // === STEP 1: Kumpulkan data ekstra per baris (Tempat Lahir, dst) ===
+                // $extraData[rowIndex][fieldName] = [ val_orang0, val_orang1, ... ]
+                // Setiap sel ekstra dipisah dengan "+" sesuai indeks pasangan
+                $extraData = [];
+                if ($hasHeader && !empty($extraCols)) {
+                    for ($ri = $dataStartRow; $ri < count($rows); $ri++) {
+                        $row = $rows[$ri];
+                        foreach ($extraCols as $colIndex => $fieldName) {
+                            $cell = isset($row[$colIndex]) ? $row[$colIndex] : null;
+                            if ($cell === null || trim($cell) === '') continue;
+                            $parts = array_map('trim', explode('+', (string)$cell));
+                            $parts = array_filter($parts, function($p){ return $p !== ''; });
+                            if (!empty($parts)) {
+                                $extraData[$ri][$fieldName] = array_values($parts);
+                            }
+                        }
+                    }
+                }
+
+                // === STEP 2: Parse semua sel NAMA ke colData (belum insert ke DB) ===
+                // $colData[actualColIndex] = [ ['row'=>int, 'names'=>[], 'ids'=>[]], ... ]
                 $colData = [];
 
-                foreach ($rows as $rowIndex => $row) {
-                    foreach ($row as $colIndex => $cell) {
+                for ($ri = $dataStartRow; $ri < count($rows); $ri++) {
+                    $row = $rows[$ri];
+                    // Tentukan kolom mana yang merupakan kolom generasi untuk baris ini
+                    $nameCols = $hasHeader ? $sortedGenCols : array_keys($row);
+
+                    foreach ($nameCols as $colIndex) {
+                        $cell = isset($row[$colIndex]) ? $row[$colIndex] : null;
                         if ($cell === null || trim($cell) === '') continue;
                         $cell = trim($cell);
 
-                        // Pisah berdasarkan "+" lalu bersihkan
+                        // Pisah berdasarkan "+" untuk nama utama + pasangan
                         $rawParts = explode('+', $cell);
                         $nameParts = [];
                         foreach ($rawParts as $part) {
@@ -4632,9 +4708,9 @@ elseif ($action === 'privacy'): ?>
 
                         if (!isset($colData[$colIndex])) $colData[$colIndex] = [];
                         $colData[$colIndex][] = [
-                            'row'   => $rowIndex,
+                            'row'   => $ri,
                             'names' => $nameParts,
-                            'ids'   => [], // diisi di Step 2
+                            'ids'   => [], // diisi di Step 3
                         ];
                     }
                 }
@@ -4645,37 +4721,49 @@ elseif ($action === 'privacy'): ?>
                 }
                 unset($colEntries);
 
-                // === STEP 2: Insert persons + bangun relasi + urutan saudara ===
+                // === STEP 3: Insert persons + bangun relasi + urutan saudara ===
                 //
                 // ATURAN DEDUP: Jika nama utama (index 0) muncul lebih dari satu kali
                 // di kolom yang sama dan memiliki orang tua yang SAMA (entri terdekat
-                // di kolom sebelumnya), maka dianggap ORANG YANG SAMA — hanya beda pasangan.
-                // Contoh:
-                //   Kolom A     Kolom B
-                //   Ahmad  →    Budi + Siti
-                //               Budi + Aminah   ← Budi ini = Budi yang sama, pasangan ke-2
+                // di kolom generasi sebelumnya), maka dianggap ORANG YANG SAMA — hanya beda pasangan.
                 //
-                // $sameChildMap : "parentCol_parentRow:namaUtama" => personId
-                // $childOrderMap: "parentCol_parentRow"           => counter urutan anak
+                // $sameChildMap : "parentActualCol_parentRow:namaUtama" => personId
+                // $childOrderMap: "parentActualCol_parentRow"           => counter urutan anak
 
                 $childOrderMap = [];
                 $sameChildMap  = [];
 
-                // Proses kolom berurutan agar ids kolom sebelumnya sudah tersedia
-                ksort($colData);
+                // Proses kolom berurutan berdasarkan urutan generasi
+                // Untuk mode header: gunakan $sortedGenCols; untuk mode lama: ksort
+                if ($hasHeader) {
+                    $processOrder = $sortedGenCols; // actual col indices dalam urutan G1, G2, ...
+                } else {
+                    ksort($colData);
+                    $processOrder = array_keys($colData);
+                }
 
-                foreach ($colData as $colIndex => &$colEntries) {
-                    foreach ($colEntries as &$entry) {
+                foreach ($processOrder as $vIdx => $colIndex) {
+                    if (!isset($colData[$colIndex])) continue;
+
+                    // Kolom generasi induk (satu level di atas)
+                    if ($hasHeader) {
+                        $parentActualCol = ($vIdx > 0) ? $sortedGenCols[$vIdx - 1] : null;
+                    } else {
+                        // Mode lama: induk adalah kolom aktual sebelumnya
+                        $parentActualCol = ($colIndex > 0) ? ($colIndex - 1) : null;
+                    }
+
+                    foreach ($colData[$colIndex] as &$entry) {
                         $rowIndex = $entry['row'];
                         $names    = $entry['names'];
 
-                        // --- Cari parent terlebih dulu (perlu untuk dedup) ---
+                        // --- Cari parent terlebih dulu ---
                         $parentEntry    = null;
                         $parentEntryIdx = null;
                         $parentKey      = null;
 
-                        if ($colIndex > 0 && isset($colData[$colIndex - 1])) {
-                            foreach ($colData[$colIndex - 1] as $ppIdx => $pp) {
+                        if ($parentActualCol !== null && isset($colData[$parentActualCol])) {
+                            foreach ($colData[$parentActualCol] as $ppIdx => $pp) {
                                 if ($pp['row'] <= $rowIndex) {
                                     $parentEntry    = $pp;
                                     $parentEntryIdx = $ppIdx;
@@ -4684,9 +4772,19 @@ elseif ($action === 'privacy'): ?>
                                 }
                             }
                             if ($parentEntry !== null) {
-                                $parentKey = ($colIndex - 1) . '_' . $parentEntry['row'];
+                                $parentKey = $parentActualCol . '_' . $parentEntry['row'];
                             }
                         }
+
+                        // --- Ambil data ekstra untuk baris ini ---
+                        $rowExtra = isset($extraData[$rowIndex]) ? $extraData[$rowIndex] : [];
+
+                        // Helper: ambil nilai ekstra untuk indeks orang ke-$i
+                        $getExtra = function($fieldName, $personIdx) use ($rowExtra) {
+                            if (!isset($rowExtra[$fieldName])) return null;
+                            $arr = $rowExtra[$fieldName];
+                            return isset($arr[$personIdx]) ? $arr[$personIdx] : null;
+                        };
 
                         // --- Tentukan ID orang utama (dengan logika dedup) ---
                         $mainName   = $names[0];
@@ -4698,9 +4796,25 @@ elseif ($action === 'privacy'): ?>
                             $mainId     = $sameChildMap[$dedupeKey];
                             $isExisting = true;
                         } else {
-                            // Buat person baru
-                            $stmtIns = $mysqli->prepare("INSERT INTO persons (name, user_id, tree_id, gender, is_alive) VALUES (?, ?, ?, 'unknown', 1)");
-                            $stmtIns->bind_param('sii', $mainName, $targetUserId, $treeId);
+                            // Buat person baru dengan data ekstra
+                            $mainPob  = $getExtra('place_of_birth', 0);
+                            $mainDob  = $getExtra('date_of_birth', 0);
+                            $mainAddr = $getExtra('address', 0);
+                            $mainPhon = $getExtra('phone_number', 0);
+
+                            // Normalisasi tanggal lahir (DD-MM-YYYY → YYYY-MM-DD)
+                            if ($mainDob !== null) {
+                                if (preg_match('/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})$/', $mainDob, $dm)) {
+                                    $mainDob = $dm[3] . '-' . str_pad($dm[2],2,'0',STR_PAD_LEFT) . '-' . str_pad($dm[1],2,'0',STR_PAD_LEFT);
+                                } elseif (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $mainDob)) {
+                                    $mainDob = null;
+                                }
+                            }
+
+                            $stmtIns = $mysqli->prepare(
+                                "INSERT INTO persons (name, user_id, tree_id, gender, is_alive, place_of_birth, date_of_birth, address, phone_number) VALUES (?, ?, ?, 'unknown', 1, ?, ?, ?, ?)"
+                            );
+                            $stmtIns->bind_param('siissss', $mainName, $targetUserId, $treeId, $mainPob, $mainDob, $mainAddr, $mainPhon);
                             $stmtIns->execute();
                             $mainId = $mysqli->insert_id;
                             $imported++;
@@ -4713,16 +4827,30 @@ elseif ($action === 'privacy'): ?>
                         $spouseIds = [];
                         for ($i = 1; $i < count($names); $i++) {
                             $spName = $names[$i];
-                            $stmtSp = $mysqli->prepare("INSERT INTO persons (name, user_id, tree_id, gender, is_alive) VALUES (?, ?, ?, 'unknown', 1)");
-                            $stmtSp->bind_param('sii', $spName, $targetUserId, $treeId);
+                            $spPob  = $getExtra('place_of_birth', $i);
+                            $spDob  = $getExtra('date_of_birth', $i);
+                            $spAddr = $getExtra('address', $i);
+                            $spPhon = $getExtra('phone_number', $i);
+
+                            if ($spDob !== null) {
+                                if (preg_match('/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})$/', $spDob, $dm)) {
+                                    $spDob = $dm[3] . '-' . str_pad($dm[2],2,'0',STR_PAD_LEFT) . '-' . str_pad($dm[1],2,'0',STR_PAD_LEFT);
+                                } elseif (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $spDob)) {
+                                    $spDob = null;
+                                }
+                            }
+
+                            $stmtSp = $mysqli->prepare(
+                                "INSERT INTO persons (name, user_id, tree_id, gender, is_alive, place_of_birth, date_of_birth, address, phone_number) VALUES (?, ?, ?, 'unknown', 1, ?, ?, ?, ?)"
+                            );
+                            $stmtSp->bind_param('siissss', $spName, $targetUserId, $treeId, $spPob, $spDob, $spAddr, $spPhon);
                             $stmtSp->execute();
                             $spouseIds[] = $mysqli->insert_id;
                             $imported++;
                         }
 
                         // Simpan ids ke entry agar kolom berikutnya bisa mengambil parentIds
-                        $ids         = array_merge([$mainId], $spouseIds);
-                        $entry['ids'] = $ids;
+                        $entry['ids'] = array_merge([$mainId], $spouseIds);
 
                         // --- Relasi pasangan ---
                         foreach ($spouseIds as $spId) {
@@ -4733,7 +4861,7 @@ elseif ($action === 'privacy'): ?>
                         // --- Relasi orang tua → anak + urutan saudara ---
                         // Hanya untuk orang yang benar-benar baru (bukan dedup)
                         if (!$isExisting && $parentKey !== null && $parentEntryIdx !== null) {
-                            $parentIds = $colData[$colIndex - 1][$parentEntryIdx]['ids'];
+                            $parentIds = $colData[$parentActualCol][$parentEntryIdx]['ids'];
 
                             if (!empty($parentIds)) {
                                 if (!isset($childOrderMap[$parentKey])) $childOrderMap[$parentKey] = 1;
@@ -4753,8 +4881,7 @@ elseif ($action === 'privacy'): ?>
                     }
                     unset($entry);
                 }
-                unset($colEntries);
-                
+
                 echo "<div class='alert alert-success'>Import selesai. $imported data diproses.</div>";
                 if (!empty($errors)) {
                     echo "<div class='alert alert-error'>Error: " . implode(', ', $errors) . "</div>";
