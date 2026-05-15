@@ -55,6 +55,29 @@ $mysqli->set_charset('utf8mb4');
 // ... (Baris 62)
 $mysqli->set_charset('utf8mb4');
 
+// --- 5a. AJAX SET GENDER ---
+if ($action === 'set_gender') {
+    while (ob_get_level()) { ob_end_clean(); }
+    header('Content-Type: application/json; charset=utf-8');
+    ini_set('display_errors', 0);
+    $uid    = intval($_SESSION['user_id'] ?? 0);
+    $pid    = intval($_POST['person_id'] ?? 0);
+    $gender = $_POST['gender'] ?? '';
+    $treeId = intval($_SESSION['current_tree_id'] ?? 0);
+    if (isset($_SESSION['admin_viewing_tree_id'])) $treeId = intval($_SESSION['admin_viewing_tree_id']);
+    if ($uid === 0 || $pid === 0 || !in_array($gender, ['L','P'])) { echo json_encode(['ok'=>false]); exit; }
+    // Pastikan person milik tree yang boleh diakses user ini
+    $chk = $mysqli->prepare("SELECT id FROM persons WHERE id=? AND tree_id=?");
+    $chk->bind_param('ii', $pid, $treeId);
+    $chk->execute();
+    if ($chk->get_result()->num_rows === 0) { echo json_encode(['ok'=>false,'msg'=>'Tidak diizinkan']); exit; }
+    $stmt = $mysqli->prepare("UPDATE persons SET gender=? WHERE id=?");
+    $stmt->bind_param('si', $gender, $pid);
+    $stmt->execute();
+    echo json_encode(['ok'=>true, 'gender'=>$gender]);
+    exit;
+}
+
 // --- 5b. AJAX LIVE SEARCH PERSONS ---
 if ($action === 'search_persons') {
     while (ob_get_level()) { ob_end_clean(); }
@@ -2456,8 +2479,13 @@ if ($action === 'bio') {
                     <p style="text-align:center; padding:20px;">Belum ada anggota.</p>
                 <?php else: ?>
                     <ul class="person-list">
-                        <?php foreach ($allPersons as $p): ?>
-                           <li class="person-item">
+                        <?php foreach ($allPersons as $p):
+                            $gVal = $p['gender'] ?? '';
+                            $hasGender = ($gVal === 'L' || $gVal === 'P');
+                            $gLabel = $gVal === 'L' ? '♂ Laki-laki' : ($gVal === 'P' ? '♀ Perempuan' : '');
+                            $gColor = $gVal === 'L' ? '#3b82f6' : ($gVal === 'P' ? '#ec4899' : '');
+                        ?>
+                           <li class="person-item" style="align-items:center;">
                                 <a href="?action=bio&id=<?= $p['id'] ?>&mode=view" class="person-left">
                                     <div class="person-avatar">
                                         <?php if (!empty($p['photo'])): ?>
@@ -2468,11 +2496,48 @@ if ($action === 'bio') {
                                     </div>
                                     <div class="person-info">
                                         <span class="person-name"><?= htmlspecialchars($p['name']) ?></span>
-                                        </div>
+                                        <?php if ($hasGender): ?>
+                                            <span style="font-size:0.75rem; color:<?= $gColor ?>; margin-top:2px; display:block;"><?= $gLabel ?></span>
+                                        <?php endif; ?>
+                                    </div>
                                 </a>
+                                <?php if (!$hasGender): ?>
+                                <div class="gender-pick" data-pid="<?= $p['id'] ?>" style="display:flex; gap:6px; margin-left:auto; padding-right:4px; flex-shrink:0;">
+                                    <button onclick="setGender(<?= $p['id'] ?>,'L',this)" style="padding:4px 10px; font-size:0.78rem; font-weight:700; background:#dbeafe; color:#1d4ed8; border:1px solid #93c5fd; border-radius:6px; cursor:pointer; line-height:1;">L</button>
+                                    <button onclick="setGender(<?= $p['id'] ?>,'P',this)" style="padding:4px 10px; font-size:0.78rem; font-weight:700; background:#fce7f3; color:#be185d; border:1px solid #f9a8d4; border-radius:6px; cursor:pointer; line-height:1;">P</button>
+                                </div>
+                                <?php endif; ?>
                                 </li>
                         <?php endforeach; ?>
                     </ul>
+
+                    <script>
+                    function setGender(pid, gender, btn) {
+                        var wrap = btn.closest('.gender-pick');
+                        var btns = wrap.querySelectorAll('button');
+                        btns.forEach(function(b){ b.disabled = true; b.style.opacity='0.5'; });
+
+                        var fd = new FormData();
+                        fd.append('person_id', pid);
+                        fd.append('gender', gender);
+
+                        fetch('?action=set_gender', { method:'POST', body:fd })
+                            .then(function(r){ return r.json(); })
+                            .then(function(data) {
+                                if (data.ok) {
+                                    var label = gender === 'L' ? '♂ Laki-laki' : '♀ Perempuan';
+                                    var color = gender === 'L' ? '#3b82f6' : '#ec4899';
+                                    wrap.outerHTML = '<span style="font-size:0.78rem; font-weight:600; color:'+color+'; margin-left:auto; padding-right:8px; flex-shrink:0;">'+label+'</span>';
+                                } else {
+                                    btns.forEach(function(b){ b.disabled=false; b.style.opacity='1'; });
+                                    alert('Gagal menyimpan.');
+                                }
+                            })
+                            .catch(function(){
+                                btns.forEach(function(b){ b.disabled=false; b.style.opacity='1'; });
+                            });
+                    }
+                    </script>
                 <?php endif; ?>
             </div>
         
