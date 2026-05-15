@@ -5249,8 +5249,18 @@ function showAdminViewModal(userId, userName) {
                   '<span class="ls-name">' + p.name.replace(/</g,'&lt;') + '</span>' +
                   (sub ? '<span class="ls-sub">' + sub + '</span>' : '') +
                 '</div>';
-            /* Navigasi diserahkan ke global AJAX click handler.
-               Dropdown akan hilang saat konten halaman baru dimuat. */
+            a.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                /* sembunyikan dropdown dulu, lalu navigasi */
+                ['ls-drop-mobile','ls-drop-desktop'].forEach(function(id){
+                    var el = document.getElementById(id); if(el) el.style.display='none';
+                });
+                ['ls-input-mobile','ls-input-desktop'].forEach(function(id){
+                    var el = document.getElementById(id); if(el) el.value='';
+                });
+                window.location.href = a.href;
+            });
             dropEl.appendChild(a);
         });
         dropEl.style.display = 'block';
