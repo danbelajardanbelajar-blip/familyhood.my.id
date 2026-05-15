@@ -3819,7 +3819,7 @@ if ($activeTreeId == 0): ?>
         $out .= '<rect x="'.($x+2).'" y="'.($y+3).'" width="'.$NW.'" height="'.$nh.'" rx="'.$RX.'" fill="rgba(0,0,0,0.07)"/>';
 
         // kotak utama (klik → lihat profil)
-        $out .= '<a href="?action=view_person&amp;id='.$pid.'">';
+        $out .= '<a href="?action=bio&amp;id='.$pid.'&amp;mode=view">';
         $out .= '<rect x="'.$x.'" y="'.$y.'" width="'.$NW.'" height="'.$nh.'" rx="'.$RX.'" fill="'.ll_e($fillC).'" stroke="'.ll_e($strokeC).'" stroke-width="1.5" style="cursor:pointer"/>';
 
         // tanda almarhum
@@ -3852,7 +3852,7 @@ if ($activeTreeId == 0): ?>
             $out .= '<line x1="'.($x+10).'" y1="'.$spY.'" x2="'.($x+$NW-10).'" y2="'.$spY.'" stroke="'.ll_e($strokeC).'" stroke-width="1"/>';
 
             // baris pasangan (klik → lihat profil pasangan)
-            $out .= '<a href="?action=view_person&amp;id='.$spid.'">';
+            $out .= '<a href="?action=bio&amp;id='.$spid.'&amp;mode=view">';
             $spLabel = ll_e('♥ '.ll_trunc($sp['name'], 18));
             $out .= '<text x="'.($x+$NW/2+8).'" y="'.($spY+$NSH/2).'" text-anchor="middle" dominant-baseline="middle" font-size="11" font-weight="500" fill="#6366f1" font-family="system-ui,sans-serif">'.$spLabel.'</text>';
             $sdotC = $sp['gender']==='male' ? '#3b82f6' : ($sp['gender']==='female' ? '#ec4899' : '#94a3b8');
@@ -5239,7 +5239,7 @@ function showAdminViewModal(userId, userName) {
         data.forEach(function(p) {
             var a = document.createElement('a');
             a.className = 'ls-item';
-            a.href = '?action=view_person&id=' + p.id;
+            a.href = '?action=bio&id=' + p.id + '&mode=view';
             a.setAttribute('tabindex', '0');
             var col = avatarColor(p.gender);
             var sub = genderLabel(p.gender, p.is_alive);
