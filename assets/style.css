@@ -54,16 +54,17 @@ input, select, textarea { width: 100%; padding: 10px; border: 1px solid #d1d5db;
 
 
 /* --- TAMPILAN APP UTAMA (INDEX.PHP) --- */
-.app-body { padding-top: 70px; padding-bottom: 80px; } /* Space untuk Header & Bottom Nav */
+.app-body { padding-top: 110px; padding-bottom: 80px; } /* Space untuk Header (logo+search) & Bottom Nav */
 .container { padding: 0 15px; max-width: 100%; }
 
-/* Mobile Header (Fixed Logo) */
-.mobile-header { 
-    position: fixed; top: 0; left: 0; right: 0; height: 60px; background: #fff; 
-    display: flex; justify-content: center; align-items: center; z-index: 999;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+/* Mobile Header (Fixed Logo + Search) */
+.mobile-header {
+    position: fixed; top: 0; left: 0; right: 0; background: #fff;
+    display: flex; flex-direction: column; align-items: stretch;
+    z-index: 999; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    padding: 8px 14px 10px;
 }
-.mobile-header svg { width: 32px; height: 32px; }
+.mobile-header > svg { width: 32px; height: 32px; align-self: center; margin-bottom: 6px; }
 
 /* Mobile Bottom Nav */
 .bottom-nav {
@@ -411,3 +412,66 @@ input, select, textarea { width: 100%; padding: 10px; border: 1px solid #d1d5db;
     from { opacity: 0; transform: translateY(10px); }
     to { opacity: 1; transform: translateY(0); }
 }
+
+/* ══════════════════════════════════════════
+   LIVE SEARCH
+══════════════════════════════════════════ */
+.ls-wrap { position: relative; width: 100%; }
+
+.ls-input-row {
+    display: flex; align-items: center; gap: 7px;
+    border-radius: 9px; padding: 0 11px;
+    border: 1.5px solid #e2e8f0; background: #f8fafc;
+    transition: border-color .15s, box-shadow .15s;
+}
+.ls-input-row:focus-within {
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99,102,241,.12);
+    background: #fff;
+}
+/* desktop: on the indigo gradient header */
+.desktop-header .ls-input-row {
+    background: rgba(255,255,255,.15);
+    border-color: rgba(255,255,255,.35);
+}
+.desktop-header .ls-input-row:focus-within {
+    background: rgba(255,255,255,.25);
+    border-color: rgba(255,255,255,.7);
+    box-shadow: 0 0 0 3px rgba(255,255,255,.15);
+}
+
+.ls-icon { width: 15px; height: 15px; flex-shrink: 0; stroke: #94a3b8; }
+.desktop-header .ls-icon { stroke: rgba(255,255,255,.75); }
+
+.ls-input {
+    border: none; background: transparent; outline: none;
+    font-size: 0.875rem; width: 100%; padding: 9px 0;
+    font-family: inherit; color: #1e293b;
+}
+.ls-input::placeholder { color: #94a3b8; }
+.desktop-header .ls-input { color: #fff; }
+.desktop-header .ls-input::placeholder { color: rgba(255,255,255,.6); }
+
+/* dropdown */
+.ls-drop {
+    position: absolute; top: calc(100% + 6px); left: 0; right: 0;
+    background: #fff; border-radius: 12px; z-index: 3000;
+    box-shadow: 0 12px 32px rgba(0,0,0,.14), 0 2px 8px rgba(0,0,0,.08);
+    border: 1px solid #e2e8f0; overflow: hidden; max-height: 340px; overflow-y: auto;
+}
+.ls-item {
+    display: flex; align-items: center; gap: 11px;
+    padding: 10px 14px; cursor: pointer; text-decoration: none; color: #1e293b;
+    border-bottom: 1px solid #f1f5f9; transition: background .1s;
+}
+.ls-item:last-child { border-bottom: none; }
+.ls-item:hover, .ls-item:focus { background: #f1f5f9; outline: none; }
+.ls-avatar {
+    width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.8rem; font-weight: 700; color: #fff;
+}
+.ls-info { display: flex; flex-direction: column; min-width: 0; }
+.ls-name { font-size: 0.875rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ls-sub  { font-size: 0.75rem; color: #94a3b8; margin-top: 1px; }
+.ls-empty { padding: 18px 14px; color: #94a3b8; font-size: 0.875rem; text-align: center; }

@@ -55,6 +55,42 @@ $mysqli->set_charset('utf8mb4');
 // ... (Baris 62)
 $mysqli->set_charset('utf8mb4');
 
+// --- 5b. AJAX LIVE SEARCH PERSONS ---
+if ($action === 'search_persons') {
+    while (ob_get_level()) { ob_end_clean(); }
+    header('Content-Type: application/json; charset=utf-8');
+    ini_set('display_errors', 0);
+
+    $q      = trim($_GET['q'] ?? '');
+    $uid    = intval($_SESSION['user_id'] ?? 0);
+    $treeId = intval($_SESSION['current_tree_id'] ?? 0);
+
+    // Jika admin sedang melihat user lain, pakai tree yang sedang dilihat
+    if (isset($_SESSION['admin_viewing_tree_id'])) {
+        $treeId = intval($_SESSION['admin_viewing_tree_id']);
+    }
+
+    if ($uid === 0 || $treeId === 0 || mb_strlen($q) < 1) {
+        echo json_encode([]); exit;
+    }
+
+    $like = '%' . $q . '%';
+    $stmt = $mysqli->prepare(
+        "SELECT id, name, gender, is_alive
+         FROM persons
+         WHERE tree_id = ? AND name LIKE ?
+         ORDER BY LOCATE(?, name), name
+         LIMIT 12"
+    );
+    $stmt->bind_param('iss', $treeId, $like, $q);
+    $stmt->execute();
+    $res  = $stmt->get_result();
+    $rows = [];
+    while ($r = $res->fetch_assoc()) $rows[] = $r;
+    echo json_encode($rows, JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 // --- 6. AJAX GET COLLABORATORS (REVISI ANTI-ERROR 500) ---
 if ($action === 'get_collaborators') {
     // 1. Bersihkan buffer output
@@ -2131,6 +2167,14 @@ if ($action === 'bio') {
             <path d="M256 250L362 340" stroke="white" stroke-width="32" stroke-linecap="round"/>
             <circle cx="256" cy="140" r="60" fill="white"/>
         </svg>
+        <!-- Search bar mobile -->
+        <div class="ls-wrap" id="ls-wrap-mobile">
+            <div class="ls-input-row">
+                <svg class="ls-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input id="ls-input-mobile" class="ls-input" type="search" placeholder="Cari anggota keluarga…" autocomplete="off" />
+            </div>
+            <div id="ls-drop-mobile" class="ls-drop" style="display:none;"></div>
+        </div>
     </header>
 
     <div class="desktop-header">
@@ -2144,6 +2188,14 @@ if ($action === 'bio') {
                     <circle cx="256" cy="140" r="60" fill="#4f46e5"/>
                 </svg>
                 <h1 style="font-size:1.2rem; margin:0;">familyHood</h1>
+            </div>
+            <!-- Search bar desktop -->
+            <div class="ls-wrap" id="ls-wrap-desktop" style="flex:1;max-width:340px;margin:0 24px;">
+                <div class="ls-input-row">
+                    <svg class="ls-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    <input id="ls-input-desktop" class="ls-input" type="search" placeholder="Cari anggota keluarga…" autocomplete="off" />
+                </div>
+                <div id="ls-drop-desktop" class="ls-drop" style="display:none;"></div>
             </div>
             <div style="font-size:0.9rem;">
                 Halo, <strong><?= htmlspecialchars($_SESSION['user_name']) ?></strong>
@@ -5137,6 +5189,145 @@ function showAdminViewModal(userId, userName) {
             listContainer.innerHTML = '<li style="color:red; text-align:center; padding:15px;">Gagal memuat data.</li>';
         });
 }
+
+
+// ══════════════════════════════════════════════
+// LIVE SEARCH — bekerja di semua halaman
+// ══════════════════════════════════════════════
+(function() {
+    var _timer = null;
+    var _lastQ = '';
+
+    /* avatar color berdasarkan gender */
+    function avatarColor(gender) {
+        return gender === 'male'   ? '#3b82f6'
+             : gender === 'female' ? '#ec4899'
+             : '#6366f1';
+    }
+
+    /* label singkat gender */
+    function genderLabel(gender, alive) {
+        var g = gender === 'male' ? 'Laki-laki' : gender === 'female' ? 'Perempuan' : '';
+        var a = alive == 1 ? '' : ' · Almarhum/ah';
+        return g + a;
+    }
+
+    /* buat initial avatar */
+    function initial(name) {
+        return name ? name.trim().charAt(0).toUpperCase() : '?';
+    }
+
+    /* render hasil ke dalam dropdown div */
+    function renderResults(dropEl, data, q) {
+        dropEl.innerHTML = '';
+        if (!data || data.length === 0) {
+            dropEl.innerHTML = '<div class="ls-empty">Tidak ditemukan hasil untuk "<strong>' +
+                q.replace(/</g,'&lt;') + '</strong>"</div>';
+            dropEl.style.display = 'block';
+            return;
+        }
+        data.forEach(function(p) {
+            var a = document.createElement('a');
+            a.className = 'ls-item';
+            a.href = '?action=view_person&id=' + p.id;
+            a.setAttribute('tabindex', '0');
+            var col = avatarColor(p.gender);
+            var sub = genderLabel(p.gender, p.is_alive);
+            a.innerHTML =
+                '<div class="ls-avatar" style="background:' + col + '">' + initial(p.name) + '</div>' +
+                '<div class="ls-info">' +
+                  '<span class="ls-name">' + p.name.replace(/</g,'&lt;') + '</span>' +
+                  (sub ? '<span class="ls-sub">' + sub + '</span>' : '') +
+                '</div>';
+            /* navigasi via AJAX loadPage jika tersedia, fallback ke href */
+            a.addEventListener('click', function(e) {
+                e.preventDefault();
+                closeAll();
+                if (typeof loadPage === 'function') loadPage(a.href);
+                else window.location.href = a.href;
+            });
+            dropEl.appendChild(a);
+        });
+        dropEl.style.display = 'block';
+    }
+
+    /* tutup semua dropdown */
+    function closeAll() {
+        ['ls-drop-mobile','ls-drop-desktop'].forEach(function(id) {
+            var el = document.getElementById(id);
+            if (el) el.style.display = 'none';
+        });
+        ['ls-input-mobile','ls-input-desktop'].forEach(function(id) {
+            var el = document.getElementById(id);
+            if (el) el.value = '';
+        });
+        _lastQ = '';
+    }
+
+    /* fetch & tampilkan */
+    function doSearch(q, dropEl) {
+        if (q === _lastQ) return;
+        _lastQ = q;
+        if (q.length === 0) { dropEl.style.display = 'none'; return; }
+        fetch('?action=search_persons&q=' + encodeURIComponent(q))
+            .then(function(r) { return r.json(); })
+            .then(function(data) { renderResults(dropEl, data, q); })
+            .catch(function() { dropEl.style.display = 'none'; });
+    }
+
+    /* pasang event ke sepasang input+dropdown */
+    function bindSearch(inputId, dropId) {
+        var inp = document.getElementById(inputId);
+        var drp = document.getElementById(dropId);
+        if (!inp || !drp) return;
+
+        inp.addEventListener('input', function() {
+            var q = inp.value.trim();
+            clearTimeout(_timer);
+            if (q.length === 0) { drp.style.display = 'none'; _lastQ = ''; return; }
+            _timer = setTimeout(function() { doSearch(q, drp); }, 220);
+        });
+
+        inp.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') { closeAll(); inp.blur(); }
+            if (e.key === 'Enter') {
+                var first = drp.querySelector('.ls-item');
+                if (first) first.click();
+            }
+            /* navigasi dengan arrow key */
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                var items = Array.from(drp.querySelectorAll('.ls-item'));
+                if (!items.length) return;
+                var cur = drp.querySelector('.ls-item:focus');
+                var idx = items.indexOf(cur);
+                if (e.key === 'ArrowDown') idx = (idx + 1) % items.length;
+                else idx = (idx - 1 + items.length) % items.length;
+                items[idx].focus();
+            }
+        });
+
+        inp.addEventListener('focus', function() {
+            if (inp.value.trim().length > 0 && _lastQ === inp.value.trim()) {
+                drp.style.display = 'block';
+            }
+        });
+    }
+
+    /* tutup jika klik di luar */
+    document.addEventListener('click', function(e) {
+        var wm = document.getElementById('ls-wrap-mobile');
+        var wd = document.getElementById('ls-wrap-desktop');
+        if (wm && !wm.contains(e.target)) document.getElementById('ls-drop-mobile').style.display = 'none';
+        if (wd && !wd.contains(e.target)) document.getElementById('ls-drop-desktop').style.display = 'none';
+    });
+
+    /* init sekarang DAN setiap kali konten AJAX berubah
+       (search bar ada di header — tidak ikut diganti AJAX, jadi cukup sekali) */
+    bindSearch('ls-input-mobile',  'ls-drop-mobile');
+    bindSearch('ls-input-desktop', 'ls-drop-desktop');
+
+})();
 
 
 </script>
