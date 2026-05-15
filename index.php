@@ -2431,8 +2431,13 @@ if ($action === 'bio') {
                     <p style="text-align:center; padding:20px; color:#6b7280;">Belum ada anggota di keluarga ini.</p>
                 <?php else: ?>
                     <ul class="person-list">
-                        <?php foreach ($allPersons as $p): ?>
-                           <li class="person-item">
+                        <?php foreach ($allPersons as $p):
+                            $gVal = $p['gender'] ?? '';
+                            $hasGender = ($gVal === 'L' || $gVal === 'P');
+                            $gLabel = $gVal === 'L' ? '♂ Laki-laki' : ($gVal === 'P' ? '♀ Perempuan' : '');
+                            $gColor = $gVal === 'L' ? '#3b82f6' : ($gVal === 'P' ? '#ec4899' : '');
+                        ?>
+                           <li class="person-item" style="align-items:center;">
                                 <a href="?action=bio&id=<?= $p['id'] ?>&mode=view" class="person-left">
                                     <div class="person-avatar">
                                         <?php if (!empty($p['photo'])): ?>
@@ -2443,16 +2448,50 @@ if ($action === 'bio') {
                                     </div>
                                     <div class="person-info">
                                         <span class="person-name"><?= htmlspecialchars($p['name']) ?></span>
-                                        <?php if(isset($p['date_of_birth']) && $p['date_of_birth']): ?>
+                                        <?php if ($hasGender): ?>
+                                            <span style="font-size:0.75rem; color:<?= $gColor ?>; margin-top:1px; display:block;"><?= $gLabel ?></span>
+                                        <?php elseif (isset($p['date_of_birth']) && $p['date_of_birth']): ?>
                                             <small style="color:#9ca3af; font-size:0.75rem;">
                                                 Lahir: <?= date('Y', strtotime($p['date_of_birth'])) ?>
                                             </small>
                                         <?php endif; ?>
                                     </div>
                                 </a>
+                                <?php if (!$hasGender): ?>
+                                <div class="gender-pick" data-pid="<?= $p['id'] ?>" style="display:flex; gap:6px; margin-left:auto; padding-right:4px; flex-shrink:0;">
+                                    <button onclick="setGender(<?= $p['id'] ?>,'L',this)" style="padding:5px 11px; font-size:0.8rem; font-weight:700; background:#dbeafe; color:#1d4ed8; border:1px solid #93c5fd; border-radius:6px; cursor:pointer; line-height:1;">L</button>
+                                    <button onclick="setGender(<?= $p['id'] ?>,'P',this)" style="padding:5px 11px; font-size:0.8rem; font-weight:700; background:#fce7f3; color:#be185d; border:1px solid #f9a8d4; border-radius:6px; cursor:pointer; line-height:1;">P</button>
+                                </div>
+                                <?php endif; ?>
                            </li>
                         <?php endforeach; ?>
                     </ul>
+
+                    <script>
+                    function setGender(pid, gender, btn) {
+                        var wrap = btn.closest('.gender-pick');
+                        var btns = wrap.querySelectorAll('button');
+                        btns.forEach(function(b){ b.disabled=true; b.style.opacity='0.5'; });
+                        var fd = new FormData();
+                        fd.append('person_id', pid);
+                        fd.append('gender', gender);
+                        fetch('?action=set_gender', { method:'POST', body:fd })
+                            .then(function(r){ return r.json(); })
+                            .then(function(data) {
+                                if (data.ok) {
+                                    var label = gender === 'L' ? '♂ Laki-laki' : '♀ Perempuan';
+                                    var color = gender === 'L' ? '#3b82f6' : '#ec4899';
+                                    wrap.outerHTML = '<span style="font-size:0.78rem;font-weight:600;color:'+color+';margin-left:auto;padding-right:8px;flex-shrink:0;">'+label+'</span>';
+                                } else {
+                                    btns.forEach(function(b){ b.disabled=false; b.style.opacity='1'; });
+                                    alert('Gagal menyimpan.');
+                                }
+                            })
+                            .catch(function(){
+                                btns.forEach(function(b){ b.disabled=false; b.style.opacity='1'; });
+                            });
+                    }
+                    </script>
                 <?php endif; ?>
             </div>
 
