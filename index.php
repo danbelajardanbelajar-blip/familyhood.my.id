@@ -2448,13 +2448,10 @@ if ($action === 'bio') {
                                     </div>
                                     <div class="person-info">
                                         <span class="person-name"><?= htmlspecialchars($p['name']) ?></span>
-                                        <?php if ($hasGender): ?>
-                                            <span style="font-size:0.75rem; color:<?= $gColor ?>; margin-top:1px; display:block;"><?= $gLabel ?></span>
-                                        <?php elseif (isset($p['date_of_birth']) && $p['date_of_birth']): ?>
-                                            <small style="color:#9ca3af; font-size:0.75rem;">
-                                                Lahir: <?= date('Y', strtotime($p['date_of_birth'])) ?>
-                                            </small>
-                                        <?php endif; ?>
+                                        <span style="font-size:0.75rem; color:#9ca3af; display:block; margin-top:1px;">
+                                            <?php if (isset($p['date_of_birth']) && $p['date_of_birth']): ?>Lahir: <?= date('Y', strtotime($p['date_of_birth'])) ?><?php endif; ?>
+                                            <?php if ($hasGender): ?><span style="color:<?= $gColor ?>; margin-left:<?= (isset($p['date_of_birth']) && $p['date_of_birth']) ? '6px' : '0' ?>;"><?= $gLabel ?></span><?php endif; ?>
+                                        </span>
                                     </div>
                                 </a>
                                 <?php if (!$hasGender): ?>
