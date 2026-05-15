@@ -4959,6 +4959,16 @@ document.addEventListener('DOMContentLoaded', () => {
             const newTitle = doc.title;
 
             if (newContent) {
+                // Tutup live search dropdown jika terbuka
+                ['ls-drop-mobile','ls-drop-desktop'].forEach(function(id) {
+                    var el = document.getElementById(id);
+                    if (el) el.style.display = 'none';
+                });
+                ['ls-input-mobile','ls-input-desktop'].forEach(function(id) {
+                    var el = document.getElementById(id);
+                    if (el) el.value = '';
+                });
+
                 mainContent.innerHTML = newContent.innerHTML;
                 document.title = newTitle;
 
@@ -5239,13 +5249,8 @@ function showAdminViewModal(userId, userName) {
                   '<span class="ls-name">' + p.name.replace(/</g,'&lt;') + '</span>' +
                   (sub ? '<span class="ls-sub">' + sub + '</span>' : '') +
                 '</div>';
-            /* navigasi via AJAX loadPage jika tersedia, fallback ke href */
-            a.addEventListener('click', function(e) {
-                e.preventDefault();
-                closeAll();
-                if (typeof loadPage === 'function') loadPage(a.href);
-                else window.location.href = a.href;
-            });
+            /* Navigasi diserahkan ke global AJAX click handler.
+               Dropdown akan hilang saat konten halaman baru dimuat. */
             dropEl.appendChild(a);
         });
         dropEl.style.display = 'block';
