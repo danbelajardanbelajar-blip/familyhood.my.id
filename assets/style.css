@@ -68,21 +68,21 @@ input, select, textarea { width: 100%; padding: 10px; border: 1px solid #d1d5db;
 
 /* Mobile Bottom Nav */
 .bottom-nav {
-    position: fixed; bottom: 0; left: 0; right: 0; height: 65px; background: #fff; border-top: 1px solid #e5e7eb;
-    display: flex; justify-content: space-around; align-items: center; z-index: 999;
+    position: fixed; bottom: 0; left: 0; right: 0; height: 60px; background: #fff; border-top: 1px solid #e5e7eb;
+    display: flex; justify-content: space-around; align-items: center; z-index: 999; padding: 6px 6px;
 }
-.nav-item { display: flex; flex-direction: column; align-items: center; color: #9ca3af; font-size: 0.7rem; text-decoration: none; }
+.nav-item { display: flex; flex-direction: column; align-items: center; color: #9ca3af; font-size: 0.75rem; text-decoration: none; gap: 2px; }
 .nav-item.active { color: #4f46e5; }
-.nav-item svg { width: 24px; height: 24px; stroke: currentColor; fill: none; stroke-width: 2; margin-bottom: 2px; }
+.nav-item svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 2; margin-bottom: 0; }
 
 /* Tombol Tambah Tengah (Mobile) */
-.nav-item.add-btn { position: relative; top: -20px; }
+.nav-item.add-btn { position: relative; top: -16px; }
 .nav-item.add-btn div { 
-    width: 48px; height: 48px; background: #4f46e5; border-radius: 50%; 
+    width: 52px; height: 52px; background: #4f46e5; border-radius: 50%; 
     display: flex; align-items: center; justify-content: center; color: #fff; 
-    box-shadow: 0 4px 10px rgba(79, 70, 229, 0.3); 
+    box-shadow: 0 6px 14px rgba(79, 70, 229, 0.28); 
 }
-.nav-item.add-btn svg { stroke: #fff; }
+.nav-item.add-btn svg { stroke: #fff; width: 22px; height: 22px; }
 
 /* Sembunyikan elemen Desktop di Mobile */
 .desktop-header, .desktop-nav { display: none; }
@@ -105,9 +105,9 @@ input, select, textarea { width: 100%; padding: 10px; border: 1px solid #d1d5db;
     .desktop-nav { 
         display: block; background: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-bottom: 20px; 
     }
-    .nav-inner { max-width: 1000px; margin: 0 auto; display: flex; padding: 0 10px; }
+    .nav-inner { max-width: 1000px; margin: 0 auto; display: flex; padding: 0 10px; align-items: center; gap: 8px; justify-content: center; }
     .d-link { 
-        padding: 15px 20px; text-decoration: none; color: #4b5563; font-weight: 600; border-bottom: 3px solid transparent; font-size: 0.9rem; 
+        padding: 10px 14px; text-decoration: none; color: #4b5563; font-weight: 600; border-bottom: 3px solid transparent; font-size: 0.88rem; border-radius: 8px;
     }
     .d-link:hover { background: #f9fafb; color: #4f46e5; }
     .d-link.active { border-bottom-color: #4f46e5; color: #4f46e5; }
