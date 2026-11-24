@@ -42,7 +42,12 @@ if (isset($_GET['return_to'])) {
 }
 
 // --- FUNGSI BANTUAN LOGIN SUKSES ---
-function do_login_session($userRow) {
+function do_login_session($mysqli, $userRow) {
+    $lastLogin = $mysqli->prepare("UPDATE users SET last_login_at = UTC_TIMESTAMP() WHERE id = ?");
+    $lastLogin->bind_param("i", $userRow['id']);
+    $lastLogin->execute();
+    $lastLogin->close();
+
     $_SESSION['is_logged_in'] = true;
     $_SESSION['user_id']    = $userRow['id'];
     $_SESSION['user_email'] = $userRow['email'];
@@ -78,7 +83,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['manual_login'])) {
         } 
         // Verifikasi Password Hash
         elseif (password_verify($password, $user['password'])) {
-            do_login_session($user);
+            do_login_session($mysqli, $user);
         } else {
             $login_error = "Password salah.";
         }
@@ -119,7 +124,7 @@ if (isset($_GET['code'])) {
             $upd = $mysqli->prepare("UPDATE users SET google_id = ?, photo_url = ?, updated_at = NOW() WHERE id = ?");
             $upd->bind_param("ssi", $googleId, $picture, $user['id']);
             $upd->execute();
-            do_login_session($user);
+            do_login_session($mysqli, $user);
         } else {
             // User baru (via Google): Buat akun dengan dummy password
             $dummyPass = password_hash("google_" . time() . bin2hex(random_bytes(5)), PASSWORD_DEFAULT);
@@ -133,7 +138,7 @@ if (isset($_GET['code'])) {
                 $newId = $ins->insert_id;
                 // Ambil data user yang baru dibuat agar lengkap
                 $resNew = $mysqli->query("SELECT * FROM users WHERE id=$newId");
-                do_login_session($resNew->fetch_assoc());
+                do_login_session($mysqli, $resNew->fetch_assoc());
             } else {
                 die("Gagal registrasi Google: " . $ins->error);
             }

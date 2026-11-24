@@ -4535,12 +4535,14 @@ elseif ($action === 'privacy'): ?>
         
         <h3 class="section-title">Daftar Pengguna</h3>
         <div style="overflow-x:auto;">
-            <table style="min-width: 700px;">
-                <thead><tr><th>ID</th><th>Nama</th><th>Email</th><th>Waktu Bergabung</th><th>Akses Data</th></tr></thead>
+            <table style="min-width: 800px;">
+                <thead><tr><th>ID</th><th>Nama</th><th>Email</th><th>Waktu Bergabung</th><th>Akses Data</th><th>Terakhir Login</th></tr></thead>
                 <tbody>
                 <?php
                 // Ambil data dari tabel users. Kolom allow_admin_view di users sekarang diabaikan.
-                $users = $mysqli->query("SELECT id, name, email, is_active, created_at FROM users WHERE role != 'admin' ORDER BY created_at DESC");
+                $users = $mysqli->query("SELECT id, name, email, created_at, last_login_at FROM users WHERE role != 'admin' ORDER BY created_at DESC");
+                $utcTimezone = new DateTimeZone('UTC');
+                $displayTimezone = new DateTimeZone('Asia/Jakarta');
                 while ($u = $users->fetch_assoc()):
                 ?>
                     <tr>
@@ -4577,7 +4579,14 @@ elseif ($action === 'privacy'): ?>
                                 <span style="color:#9ca3af; font-size:0.85rem;">🔒 Private (0 Keluarga)</span>
                             <?php endif; ?>
                         </td>
-
+                        <td>
+                            <?php if ($u['last_login_at'] === null): ?>
+                                Belum tercatat
+                            <?php else: ?>
+                                <?php $lastLoginAt = new DateTimeImmutable($u['last_login_at'], $utcTimezone); ?>
+                                <?= $lastLoginAt->setTimezone($displayTimezone)->format('d M Y H:i') ?> WIB
+                            <?php endif; ?>
+                        </td>
                     </tr>
                 <?php endwhile; ?>
                 </tbody>
