@@ -4594,7 +4594,7 @@ elseif ($action === 'privacy'): ?>
         </div>
         
         <div style="margin-top:40px; padding-top:20px; border-top:2px dashed #e5e7eb;">
-            <h3 class="section-title">≡اôث Kirim Pengumuman / Notifikasi</h3>
+            <h3 class="section-title">Kirim Pengumuman / Notifikasi</h3>
             
             <?php
             if (isset($_POST['send_broadcast'])) {
@@ -4615,12 +4615,12 @@ elseif ($action === 'privacy'): ?>
                 
                 <label>Tujuan:</label>
                 <select name="broadcast_target" required>
-                    <option value="0">≡اôث SEMUA USER (Broadcast)</option>
+                    <option value="0">Semua Pengguna (Broadcast)</option>
                     <?php 
                     // Ambil list user lagi untuk dropdown
                     $usersList = $mysqli->query("SELECT id, name FROM users WHERE role != 'admin'");
                     while($u = $usersList->fetch_assoc()) {
-                        echo "<option value='".$u['id']."'>ظت ".$u['name']."</option>";
+                        echo '<option value="' . (int) $u['id'] . '">' . htmlspecialchars($u['name']) . '</option>';
                     }
                     ?>
                 </select>
